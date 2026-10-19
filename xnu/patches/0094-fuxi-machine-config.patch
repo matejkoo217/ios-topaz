@@ -179,7 +179,7 @@ new file mode 100644
 index 0000000..a589227
 --- /dev/null
 +++ b/pexpert/pexpert/arm64/FUXI.h
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,129 @@
 +/*
 + * Board config for the Xiaomi 13 ("fuxi", Qualcomm SM8550 / Snapdragon 8 Gen 2,
 + * "kalama"): 8 cores - 1x Cortex-X3 + 2x Cortex-A715 + 2x Cortex-A710 +
@@ -228,6 +228,11 @@ index 0000000..a589227
 + */
 +#define FUXI                      1
 +#define SWEET                     1
++/* sweet's board_config.h is NOT included for FUXI (see the
++ * `&& !defined(ARM64_BOARD_CONFIG_FUXI)` guard), so the shared SWEET bridge
++ * needs this one here: iokit/Kernel/arm/SweetCPU.cpp and
++ * osfmk/arm64/machine_routines.c both use it. Same value as SWEET.h. */
++#define SWEET_SMP_MAX_CPUS         8
 +
 +#define ARM_ARCH_TIMER
 +/* TODO fuxi: SM8550 is ARMv9-A; this is XNU's internal version macro and is
