@@ -22,15 +22,19 @@ It lands in whatever the boot partition holds (Android), where the host can
 Harness: applied=109 skipped=0.
 --- a/bsd/dev/fuxi_usb.c
 +++ b/bsd/dev/fuxi_usb.c
-@@ -25,6 +25,7 @@
- #include <sys/kpi_mbuf.h>
- #include <sys/kpi_socket.h>
- #include <sys/sockio.h>
-+#include <IOKit/IOPlatformExpert.h>   /* PEHaltRestart */
- #include <net/if.h>
- #include <net/if_types.h>
- #include <net/ethernet.h>
-@@ -718,6 +719,8 @@
+@@ -392,6 +392,11 @@
+ #define FUXI_CMD_ETHERTYPE      0x88b5
+ #define FUXI_CMD_FRAME_MAX      (ETHER_MAX_LEN - ETHER_HDR_LEN - ETHER_CRC_LEN)
+ 
++/* osfmk/kern/debug.c gets these from IOKit/IOPlatformExpert.h, which bsd/dev
++ * does not see (exported headers only), so declare what is used here. */
++extern int PEHaltRestart(unsigned int type);
++#define FUXI_PE_RESTART_CPU 1   /* kPERestartCPU in that enum */
++
+ static errno_t ud_if_output(ifnet_t ifp, mbuf_t m);
+ extern uint32_t fuxi_cpu_khz(void);                     /* fuxi_sample.c */
+ extern unsigned int ml_get_cpu_number_local(void);      /* osfmk/arm */
+@@ -718,6 +723,8 @@
  }
  
  /* ue0, 192.168.7.2/24 (the host side is 192.168.7.1). */
@@ -39,7 +43,7 @@ Harness: applied=109 skipped=0.
  static void
  ud_if_create(void)
  {
-@@ -790,6 +793,7 @@
+@@ -790,6 +797,7 @@
  	}
  	ifnet_set_flags(ud.ifp, IFF_UP | IFF_RUNNING, IFF_UP | IFF_RUNNING);
  	printf("FUXI USB: ue0 192.168.7.2/24 %s (err %d)\n", err ? "NOT configured" : "up", err);
@@ -47,7 +51,7 @@ Harness: applied=109 skipped=0.
  }
  
  static void
-@@ -863,6 +867,137 @@
+@@ -863,6 +871,137 @@
  	}
  }
  
@@ -103,7 +107,7 @@ Harness: applied=109 skipped=0.
 +		ud_cmd_reply(so, from, "restart: resetting\n");
 +		printf("FUXI CMD: restart requested over usb\n");
 +		ud_sleep_ms(50);                /* let the datagram leave first */
-+		PEHaltRestart(kPERestartCPU);
++		PEHaltRestart(FUXI_PE_RESTART_CPU);
 +		return;
 +	}
 +	if (strncmp(line, "help", 4) == 0) {
@@ -185,7 +189,7 @@ Harness: applied=109 skipped=0.
  static void
  ud_thread(void *arg __unused, wait_result_t wr __unused)
  {
-@@ -895,6 +1030,17 @@
+@@ -895,6 +1034,17 @@
   * so the boot is included. Nothing here may print (it would feed itself).
   * Boot-arg sweetusblog=0 disables it.
   */
