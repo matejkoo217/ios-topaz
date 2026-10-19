@@ -35,7 +35,7 @@
 + */
 +#include <pexpert/arm64/board_config.h>
 +
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +#include <IOKit/IOService.h>
 +#include <IOKit/IOUserClient.h>
 +#include <IOKit/IOKitKeys.h>
@@ -115,4 +115,4 @@
 +	}
 +	return kIOReturnSuccess;
 +}
-+#endif /* SWEET */
++#endif /* ARM64_BOARD_CONFIG_FUXI */

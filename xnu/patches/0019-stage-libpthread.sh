@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # fuxi: D1 keeps the SWEET board macro bridge, so FUXI stages the same sources.
-case "${MACHINE_CONFIG:-}" in SWEET|FUXI) ;; *) exit 0 ;; esac
+case "${MACHINE_CONFIG:-}" in FUXI) ;; *) exit 0 ;; esac
 [[ "${MACOS_VERSION:-}" == 13.5 ]] || {
     echo 'SWEET libpthread integration requires xnu-8796.141.3 (macOS 13.5)' >&2
     exit 1

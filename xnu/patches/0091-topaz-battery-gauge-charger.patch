@@ -22,7 +22,7 @@ index 0000000..08cdc34
 + * (hw.h, hwio.c) and Linux i2c-qcom-geni.c. Read-only use by FuxiBattery.
 + * The SE1 RCG is not touched: DFS level 0 already runs from XO (TopazBattery).
 + */
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +#include <sys/param.h>
 +#include <sys/systm.h>
 +#include <sys/errno.h>
@@ -243,7 +243,7 @@ index 0000000..08cdc34
 +	printf("FUXI I2C1: SE1 ready (fw %#x vote %#x)\n", fw, rd(i2c1_gcc, I2C1_GCC_VOTE));
 +	return 0;
 +}
-+#endif /* ARM64_BOARD_CONFIG_SWEET */
++#endif /* ARM64_BOARD_CONFIG_FUXI */
 diff --git a/iokit/Kernel/arm/FuxiBattery.cpp b/iokit/Kernel/arm/FuxiBattery.cpp
 index 9969739..809857b 100644
 --- a/iokit/Kernel/arm/FuxiBattery.cpp

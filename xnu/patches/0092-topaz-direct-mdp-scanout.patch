@@ -9,7 +9,7 @@ index 2094443..bd72f09 100644
 +extern "C" void flush_dcache64(addr64_t addr, unsigned count, int phys);  /* osfmk/arm/caches.c */
 +extern "C" vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
  
- #if defined(SWEET)
+ #if defined(ARM64_BOARD_CONFIG_FUXI)
  #include <IOKit/IOService.h>
 @@ -113,6 +115,14 @@ public:
  	bool          fConsolePaused;

@@ -4,7 +4,7 @@
  	bsd_init_kprintf("calling vfsinit\n");
  	vfsinit();
  
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +	/* AMFI's MAC policy is built in on SWEET (bsd/kern/fuxi_amfi.c). */
 +	extern void fuxi_amfi_policy_register(void);
 +	fuxi_amfi_policy_register();
@@ -280,7 +280,7 @@
 +	printf("FUXI AMFI: platform binary policy %s (%d)\n",
 +	    error ? "NOT registered" : "registered", error);
 +}
- #endif /* ARM64_BOARD_CONFIG_SWEET */
+ #endif /* ARM64_BOARD_CONFIG_FUXI */
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
 @@ -10,3 +10,4 @@
@@ -303,7 +303,7 @@
 + */
 +#include <pexpert/arm64/board_config.h>
 +
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +#include <IOKit/IOLib.h>
 +#include <libkern/c++/OSArray.h>
 +#include <libkern/c++/OSBoolean.h>
@@ -474,4 +474,4 @@
 +	return v;
 +}
 +}
-+#endif /* SWEET */
++#endif /* ARM64_BOARD_CONFIG_FUXI */

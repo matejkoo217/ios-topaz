@@ -6,10 +6,10 @@ index 9a748ea..7a7cf4d 100644
  MACHINE_FLAGS_ARM64_T6000 = -DARM64_BOARD_CONFIG_T6000 		-mcpu=apple-a14
  MACHINE_FLAGS_ARM64_VMAPPLE = -DARM64_BOARD_CONFIG_VMAPPLE              -march=armv8.5a
  MACHINE_FLAGS_ARM64_BCM2837 = -DARM64_BOARD_CONFIG_BCM2837
--MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_SWEET                -march=armv8.2-a+crypto
+-MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_FUXI                -march=armv8.2-a+crypto
 +# topaz: Cortex-A53/A73 are ARMv8.0 (no LSE atomics, RCpc, PAN or FP16). An explicit
 +# -mcpu: -arch arm64 otherwise keeps clang's apple-m1 default and its LSE/RCpc features
-+MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_SWEET                -mcpu=cortex-a53
++MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_FUXI                -mcpu=cortex-a53
  
  
  #
@@ -59,7 +59,7 @@ index 2449334..9faf940 100644
  /* vim: set sw=4 ts=4: */
 +
 +
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +/*
 + * topaz (Cortex-A53/A73, ARMv8.0): emulate one LSE atomic / LDAPR on a user
 + * address for handle_uncategorized() in sleh.c.
@@ -141,7 +141,7 @@ index 2449334..9faf940 100644
 +	FUXI_LSE h, ldaxrh, stlxrh, w, "sxth w12, w10", "sxth w13, w2"
 +	FUXI_LSE w, ldaxr,  stlxr,  w, "mov w12, w10",  "mov w13, w2"
 +	FUXI_LSE x, ldaxr,  stlxr,  x, "mov x12, x10",  "mov x13, x2"
-+#endif /* SWEET */
++#endif /* ARM64_BOARD_CONFIG_FUXI */
 diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
 index 24f1abc..a2a8c1b 100644
 --- a/osfmk/arm64/sleh.c
@@ -150,7 +150,7 @@ index 24f1abc..a2a8c1b 100644
  #endif
  }
  
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +extern int _fuxi_lse_b(user_addr_t, uint32_t, uint64_t, uint64_t, uint64_t *);
 +extern int _fuxi_lse_h(user_addr_t, uint32_t, uint64_t, uint64_t, uint64_t *);
 +extern int _fuxi_lse_w(user_addr_t, uint32_t, uint64_t, uint64_t, uint64_t *);
@@ -220,7 +220,7 @@ index 24f1abc..a2a8c1b 100644
 +	add_saved_state_pc(state, 4);
 +	return true;
 +}
-+#endif /* SWEET */
++#endif /* ARM64_BOARD_CONFIG_FUXI */
 +
  /*
   * Uncategorized exceptions are a catch-all for general execution errors.
@@ -229,7 +229,7 @@ index 24f1abc..a2a8c1b 100644
  
  	COPYIN(get_saved_state_pc(state), (char *)&instr, sizeof(instr));
  
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +	if (PSR64_IS_USER64(get_saved_state_cpsr(state)) && fuxi_emulate_lse(state, instr)) {
 +		return;
 +	}

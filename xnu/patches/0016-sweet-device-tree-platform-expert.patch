@@ -5,7 +5,7 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
  
  const char * gIOKernelConfigTables =
      "("
-+#if defined(ARM64_BOARD_CONFIG_SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +    "   {"
 +    "     'IOClass'         = FuxiPlatformExpert;"
 +    "     'IOProviderClass' = IOPlatformExpertDevice;"
@@ -38,7 +38,7 @@ new file mode 100644
 + */
 +#include <pexpert/arm64/board_config.h>
 +
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +#include <IOKit/IOPlatformExpert.h>
 +#include <IOKit/IODeviceTreeSupport.h>
 +#include <IOKit/IOLib.h>
@@ -116,4 +116,4 @@ new file mode 100644
 +	strlcpy(name, "Redmi Note 10 Pro", (size_t)maxLength);
 +	return true;
 +}
-+#endif /* SWEET */
++#endif /* ARM64_BOARD_CONFIG_FUXI */

@@ -24,7 +24,7 @@ index 0000000..f03605a
 +#   * Nothing in this file encodes the 16K-granule, ARMv8.0, LSE or PAN choices
 +#     - those live in pexpert/pexpert/arm64/FUXI.h. fuxi is ARMv9 with PAN on
 +#     and no -mcpu=cortex-a53 (see FUXI.h).
-+#   * The driver gating (#if defined(SWEET) / ARM64_BOARD_CONFIG_SWEET) is
++#   * The driver gating (#if defined(ARM64_BOARD_CONFIG_FUXI) / ARM64_BOARD_CONFIG_FUXI) is
 +#     shared with fuxi on purpose; see MACHINE_CONFIG_FUXI.md.
 +#
 +#
@@ -143,22 +143,22 @@ index 7a7cf4d..3506534 100644
  else ifneq ($(findstring _host,$(RC_ProjectName)),)
  SUPPORTED_ARM64_MACHINE_CONFIGS = NONE
  else
--SUPPORTED_ARM64_MACHINE_CONFIGS = BCM2837 T6000 T8101 T8103 VMAPPLE SWEET
-+SUPPORTED_ARM64_MACHINE_CONFIGS = BCM2837 T6000 T8101 T8103 VMAPPLE SWEET FUXI
+-SUPPORTED_ARM64_MACHINE_CONFIGS = BCM2837 T6000 T8101 T8103 VMAPPLE FUXI
++SUPPORTED_ARM64_MACHINE_CONFIGS = BCM2837 T6000 T8101 T8103 VMAPPLE FUXI
  
  endif
  
 @@ -64,6 +64,13 @@ MACHINE_FLAGS_ARM64_BCM2837 = -DARM64_BOARD_CONFIG_BCM2837
  # topaz: Cortex-A53/A73 are ARMv8.0 (no LSE atomics, RCpc, PAN or FP16). An explicit
  # -mcpu: -arch arm64 otherwise keeps clang's apple-m1 default and its LSE/RCpc features
- MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_SWEET                -mcpu=cortex-a53
+ MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_FUXI                -mcpu=cortex-a53
 +# fuxi (SM8550 kalama): ARMv9 (X3/A715/A710/A510) with LSE, RCpc and PAN.
 +# No -mcpu override: clang's -arch arm64 apple-m1 default already targets an
 +# LSE/PAN-capable core, which is what SM8550 is (topaz needed -mcpu=cortex-a53
-+# only because Kryo 260 is ARMv8.0). -DARM64_BOARD_CONFIG_SWEET keeps the
++# only because Kryo 260 is ARMv8.0). -DARM64_BOARD_CONFIG_FUXI keeps the
 +# inherited sweet driver stack compiled in; drop it once that stack is
 +# re-gated on FUXI (see MACHINE_CONFIG_FUXI.md).
-+MACHINE_FLAGS_ARM64_FUXI = -DARM64_BOARD_CONFIG_FUXI -DARM64_BOARD_CONFIG_SWEET -march=armv8.2-a+crypto
++MACHINE_FLAGS_ARM64_FUXI = -DARM64_BOARD_CONFIG_FUXI -DARM64_BOARD_CONFIG_FUXI -march=armv8.2-a+crypto
  
  
  #
@@ -167,10 +167,10 @@ index 7a7cf4d..3506534 100644
  export ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG := $(shell echo $(CURRENT_ARCH_CONFIG) | tr A-Z a-z)
  ifneq ($(filter arm64,$(ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG)),)
 -# sweet's Cortex-A76/A55 have no pointer authentication: stay plain arm64
--ifneq ($(CURRENT_MACHINE_CONFIG),SWEET)
+-ifneq ($(CURRENT_MACHINE_CONFIG),FUXI)
 +# sweet's Cortex-A76/A55 and fuxi's X3/A7xx have no pointer authentication:
 +# stay plain arm64 (FUXI reuses the sweet stack; see pexpert/arm64/FUXI.h)
-+ifeq ($(filter $(CURRENT_MACHINE_CONFIG),SWEET FUXI),)
++ifeq ($(filter $(CURRENT_MACHINE_CONFIG),FUXI),)
  export ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG := arm64e
  endif
  endif
@@ -218,12 +218,12 @@ index 0000000..a589227
 + *
 + *   FUXI  - the SM8550 board; new/retargeted code should gate on this.
 + *   SWEET - the inherited bring-up family (kept for the existing drivers).
-+ *           MACHINE_FLAGS_ARM64_FUXI also passes -DARM64_BOARD_CONFIG_SWEET.
++ *           MACHINE_FLAGS_ARM64_FUXI also passes -DARM64_BOARD_CONFIG_FUXI.
 + *
 + * TODO fuxi: split the SoC-independent bring-up out of the SWEET guards, then
 + * gate the SM7150-specific bits (SPMI/GENI SE7/GT9896 addresses, RPMh, the
 + * gauge, ...) on `SWEET && !FUXI` and the SM8550 bits on FUXI. Until then,
-+ * code under `#if defined(SWEET)` (e.g. patch 0081's userland LSE emulation)
++ * code under `#if defined(ARM64_BOARD_CONFIG_FUXI)` (e.g. patch 0081's userland LSE emulation)
 + * also compiles into the FUXI kernel; see MACHINE_CONFIG_FUXI.md.
 + */
 +#define FUXI                      1
@@ -327,14 +327,14 @@ index 88e524a..cf84e47 100644
  #define CORE_NCTRS                     8 /* Placeholder; KPC is not enabled for this target */
  #endif  /* ARM64_BOARD_CONFIG_BCM2837 */
  
--#ifdef ARM64_BOARD_CONFIG_SWEET
-+#if defined(ARM64_BOARD_CONFIG_SWEET) && !defined(ARM64_BOARD_CONFIG_FUXI)
+-#ifdef ARM64_BOARD_CONFIG_FUXI
++#if defined(ARM64_BOARD_CONFIG_FUXI) && !defined(ARM64_BOARD_CONFIG_FUXI)
  #include <pexpert/arm64/SWEET.h>
  
  #define MAX_L2_CLINE                   6
 @@ -108,6 +108,21 @@
  
- #endif  /* ARM64_BOARD_CONFIG_SWEET */
+ #endif  /* ARM64_BOARD_CONFIG_FUXI */
  
 +#ifdef ARM64_BOARD_CONFIG_FUXI
 +#include <pexpert/arm64/FUXI.h>

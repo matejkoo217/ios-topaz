@@ -246,7 +246,7 @@
  
  		flush_dcache((vm_offset_t)&CpuDataEntries[cpu], sizeof(cpu_data_entry_t), FALSE);
  		flush_dcache((vm_offset_t)cpu_data_ptr, sizeof(cpu_data_t), FALSE);
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +		/* The reset stub loads these through physical addresses with caches off.
 +		 * Use VA range cleans to PoC, including on coherent-I/O builds. */
 +		extern uint8_t bootstrap_pagetables[BOOTSTRAP_TABLE_SIZE];
@@ -266,7 +266,7 @@
  }
  
  
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +/* Bring-up observer: the self-SGI clears SIGPdisabled after IRQs unmask. */
 +boolean_t fuxi_cpu_signal_is_enabled(unsigned int cpu);
 +boolean_t
@@ -290,7 +290,7 @@
  	const boolean_t cpus_boot_arg_present = PE_parse_boot_argn("cpus", &cpu_boot_arg, sizeof(cpu_boot_arg));
  	const boolean_t cpumask_boot_arg_present = PE_parse_boot_argn("cpumask", &cpumask_boot_arg, sizeof(cpumask_boot_arg));
  
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +	/* Opt in to SMP. Never expose the A76s to this A55-only configuration. */
 +	if (!cpus_boot_arg_present || cpu_boot_arg == 0) {
 +		cpu_boot_arg = 1;
@@ -307,7 +307,7 @@
  		}
  #endif
  
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +		/* Aff1 encodes the core on SM7150, not an Apple cluster ID. */
 +		cpu->die_cluster_id = (int)ml_readprop(child, "die-cluster-id", 0);
 +		cpu->cluster_core_id = (int)ml_readprop(child, "cluster-core-id", cpu->phys_id >> 8);
@@ -326,7 +326,7 @@
  	mrs		x15, MPIDR_EL1						// Load MPIDR to get CPU number
 -#if HAS_CLUSTER
 -	and		x0, x15, #0xFFFF					// CPU number in Affinity0, cluster ID in Affinity1
-+#if HAS_CLUSTER || defined(SWEET)
++#if HAS_CLUSTER || defined(ARM64_BOARD_CONFIG_FUXI)
 +	and		x0, x15, #0xFFFF					// Full Aff1:Aff0 (SWEET: core in Aff1)
  #else
  	and		x0, x15, #0xFF						// CPU number is in MPIDR Affinity Level 0
@@ -335,7 +335,7 @@
  LEXT(bootstrap_instructions)
  
  #endif /* defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR) */
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +/* PSCI CPU_ON entry (physical): x0=context_id, no stack, MMU/caches off.
 + * Keep this separate from __start (which requires x0=boot_args PA).
 + * Firmware may return at EL1 or EL2; check before accessing EL1 state.
@@ -383,7 +383,7 @@
 +	/* x0 is deliberately unused; reset_vector selects CPU data by MPIDR. */
 +	msr		SPSel, #1
 +	b		EXT(LowResetVectorBase)
-+#endif /* SWEET */
++#endif /* ARM64_BOARD_CONFIG_FUXI */
 +
  	.align 2
  	.globl EXT(resume_idle_cpu)
@@ -392,7 +392,7 @@
  	ic		iallu
  #endif
  
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +	/* Complete local TLB/I-cache invalidation before enabling the MMU. */
 +	dsb		sy
 +	isb

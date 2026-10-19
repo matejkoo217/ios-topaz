@@ -61,7 +61,7 @@
 +
 +#include <pexpert/arm64/board_config.h>
 +
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +#include <IOKit/IOMemoryDescriptor.h>
 +#include <IOKit/IOBufferMemoryDescriptor.h>
 +#include <libkern/c++/OSObject.h>
@@ -112,7 +112,7 @@
 +/* Send right for the surface in task (IOSurfaceLookupFromMachPort). */
 +mach_port_name_t fuxi_surface_port_in_task(FuxiSurface *surface, task_t task);
 +
-+#endif /* SWEET */
++#endif /* ARM64_BOARD_CONFIG_FUXI */
 +#endif /* _FUXI_SURFACE_H */
 --- /dev/null
 +++ b/iokit/Kernel/arm/FuxiSurface.cpp
@@ -146,7 +146,7 @@
 + */
 +#include "FuxiSurface.h"
 +
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +#include <IOKit/IOService.h>
 +#include <IOKit/IOUserClient.h>
 +#include <IOKit/IOKitKeys.h>
@@ -988,7 +988,7 @@
 +	*targetP = this;
 +	return &fuxi_surface_traps[index];
 +}
-+#endif /* SWEET */
++#endif /* ARM64_BOARD_CONFIG_FUXI */
 --- /dev/null
 +++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
 @@ -0,0 +1,455 @@
@@ -1025,7 +1025,7 @@
 + */
 +#include "FuxiSurface.h"
 +
-+#if defined(SWEET)
++#if defined(ARM64_BOARD_CONFIG_FUXI)
 +#include <IOKit/IOService.h>
 +#include <IOKit/IOUserClient.h>
 +#include <IOKit/IOKitKeys.h>
@@ -1446,4 +1446,4 @@
 +	}
 +	return ret;
 +}
-+#endif /* SWEET */
++#endif /* ARM64_BOARD_CONFIG_FUXI */
