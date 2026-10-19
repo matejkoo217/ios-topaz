@@ -1,0 +1,396 @@
+fuxi: 0106 -- netlog: stream the console and take commands over the USB link
+
+The port already enumerates as a CDC-ECM Ethernet device once it boots with
+sweethw=1 (ue0, 192.168.7.2/24), but nothing used it: the only way to see a boot
+was to photograph the framebuffer, and the only way to ask the kernel anything
+was to reboot it with different strings in the payload.
+
+This gives that link a job.  The host's cdc_ether owns the bulk pipe, so rather
+than stand up an IP story (DHCP, routes, an in-kernel UDP server) the channel
+rides its own ethertype, 0x88B5 ("local experimental"), on the same interface.
+The host reads it with an AF_PACKET socket, so nothing needs configuring:
+
+  phone -> host   the console stream.  conslog_putc() taps every character
+                  kernel printf() emits into a lock-free 64 KiB ring
+                  (bsd/dev/fuxi_netlog.c); a kernel thread drains it into frames
+                  of <=1200 bytes.  A panic prints to this too, which is exactly
+                  when the screen is useless.
+  host -> phone   one text command per frame, handled in the USB receive path
+                  before the frame reaches the ethernet stack:
+                    help | stat | cpu | log on|off | echo <text>
+
+The tap is lock-free and cannot block: printf holds the OS-log lock and runs in
+interrupt context and in panic, so the producer only writes a byte and bumps a
+release counter, and the drain thread is the sole consumer.  A full ring drops
+the newest byte and counts it, it never loses the framing of what was already
+queued.
+
+`fuxinet=0` disables the whole thing; it is on by default only because the USB
+link itself is already gated behind sweethw=1.
+
+`cpu` uses the PMCCNTR probe from 0105 (its helper loses its internal linkage so
+this can call it), so the answer to 'is it boosting' can be asked over USB
+instead of by photographing the screen.
+
+Host side: tools/fuxi-netlog.py (AF_PACKET on the phone's interface, prints the
+stream, sends commands).  Kernel side is ~200 lines in one new file plus four
+small hooks.  Verified to apply with the series: applied=105 skipped=0.
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -106,6 +106,7 @@
+ bsd/dev/memdev.c			standard
+ bsd/dev/fuxi_ufs.c			standard
+ bsd/dev/fuxi_sample.c			standard
++bsd/dev/fuxi_netlog.c			standard
+ bsd/dev/fuxi_keys.c			standard
+ bsd/dev/fuxi_touch.c			standard
+ bsd/dev/fuxi_i2c1.c			standard
+--- a/bsd/dev/fuxi_sample.c
++++ b/bsd/dev/fuxi_sample.c
+@@ -74,7 +74,7 @@
+ 	return v;
+ }
+ 
+-static uint32_t
++uint32_t
+ fuxi_cpu_khz(void)
+ {
+ 	uint64_t pmcr, cntfrq, c0, c1, t0, t1;
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -355,6 +355,19 @@
+ 	NULL, "ios-fuxi", "Fuxi iOS (USB Ethernet)", "0001", "02005E77EE01",
+ };
+ static const uint8_t ud_phone_mac[ETHER_ADDR_LEN] = { 0x02, 0x00, 0x5e, 0x77, 0xee, 0x02 };
++static const uint8_t ud_host_mac[ETHER_ADDR_LEN]  = { 0x02, 0x00, 0x5e, 0x77, 0xee, 0x01 };
++
++/*
++ * The netlog channel (bsd/dev/fuxi_netlog.c) rides this interface on its own
++ * ethertype, so the host needs no IP configuration: cdc_ether passes unknown
++ * ethertypes up to an AF_PACKET socket.
++ */
++#define FUXI_NETLOG_ETHERTYPE   0x88b5
++#define FUXI_NETLOG_FRAME_MAX   (ETHER_MAX_LEN - ETHER_HDR_LEN - ETHER_CRC_LEN)
++
++static errno_t ud_if_output(ifnet_t ifp, mbuf_t m);
++extern void fuxi_netlog_rx(const void *payload, size_t len);
++extern void fuxi_netlog_start(void);
+ 
+ static uint32_t
+ ud_string(unsigned idx, uint8_t *out)
+@@ -501,6 +514,16 @@
+ 	ud_sync(UD_TRB_RX, 16);
+ 	uint32_t len = UD_FRAME_MAX - (t[2] & 0xffffff);
+ 	ud_sync(UD_RX, UD_FRAME_MAX);
++	if (ud.ifp != NULL && len >= ETHER_HDR_LEN) {
++		const struct ether_header *eh =
++		    (const struct ether_header *)(ud.dma + UD_RX);
++		if (eh->ether_type == htons(FUXI_NETLOG_ETHERTYPE)) {
++			fuxi_netlog_rx((const void *)(ud.dma + UD_RX) + ETHER_HDR_LEN,
++			    len - ETHER_HDR_LEN);
++			ud_rx_arm();
++			return;
++		}
++	}
+ 	if (ud.ifp != NULL && len >= ETHER_HDR_LEN && len <= ETHER_MAX_LEN) {
+ 		/*
+ 		 * One mbuf with a 2 KiB cluster holds any frame. (mbuf_allocpacket
+@@ -557,6 +580,43 @@
+ 	}
+ }
+ 
++bool
++fuxi_usb_net_ready(void)
++{
++	return ud.ifp != NULL && ud.configured;
++}
++
++/*
++ * Send one netlog frame: a real Ethernet frame with FUXI_NETLOG_ETHERTYPE, so
++ * it goes through exactly the same TX queue, DMA buffer and completion path as
++ * any other traffic on ue0 (ud_if_output frees the mbuf).
++ */
++int
++fuxi_usb_net_send(const void *payload, size_t len)
++{
++	struct ether_header *eh;
++	mbuf_t m = NULL;
++
++	if (!fuxi_usb_net_ready() || len == 0 || len > FUXI_NETLOG_FRAME_MAX) {
++		return ENXIO;
++	}
++	if (mbuf_gethdr(MBUF_DONTWAIT, MBUF_TYPE_DATA, &m) != 0) {
++		return ENOMEM;
++	}
++	if (mbuf_mclget(MBUF_DONTWAIT, MBUF_TYPE_DATA, &m) != 0) {
++		mbuf_freem(m);
++		return ENOMEM;
++	}
++	eh = (struct ether_header *)mbuf_data(m);
++	memcpy(eh->ether_dhost, ud_host_mac, ETHER_ADDR_LEN);
++	memcpy(eh->ether_shost, ud_phone_mac, ETHER_ADDR_LEN);
++	eh->ether_type = htons(FUXI_NETLOG_ETHERTYPE);
++	memcpy((char *)mbuf_data(m) + ETHER_HDR_LEN, payload, len);
++	mbuf_setlen(m, ETHER_HDR_LEN + len);
++	mbuf_pkthdr_setlen(m, ETHER_HDR_LEN + len);
++	return ud_if_output(ud.ifp, m);
++}
++
+ static errno_t
+ ud_if_output(ifnet_t ifp, mbuf_t m)
+ {
+@@ -670,6 +730,7 @@
+ 	}
+ 	ifnet_set_flags(ud.ifp, IFF_UP | IFF_RUNNING, IFF_UP | IFF_RUNNING);
+ 	printf("FUXI USB: ue0 192.168.7.2/24 %s (err %d)\n", err ? "NOT configured" : "up", err);
++	fuxi_netlog_start();
+ }
+ 
+ static void
+--- a/osfmk/kern/printf.c
++++ b/osfmk/kern/printf.c
+@@ -842,12 +842,15 @@
+ 
+ extern int disableConsoleOutput;
+ 
++extern void fuxi_netlog_putc(char c);          /* bsd/dev/fuxi_netlog.c */
++
+ void
+ conslog_putc(char c)
+ {
+ 	if (!disableConsoleOutput) {
+ 		console_write_char(c);
+ 	}
++	fuxi_netlog_putc(c);
+ 
+ #ifdef MACH_BSD
+ 	if (!kernel_debugger_entry_count) {
+--- a/bsd/dev/fuxi_netlog.c
++++ b/bsd/dev/fuxi_netlog.c
+@@ -0,0 +1,226 @@
++/*
++ * FUXI netlog: the kernel's console and a command channel over the USB link.
++ *
++ * With sweethw=1 the phone enumerates as a CDC-ECM Ethernet device
++ * (bsd/dev/fuxi_usb.c) and the host's cdc_ether owns the bulk pipe.  Rather than
++ * build an IP story for that (no DHCP, no in-kernel UDP server), this rides its
++ * own ethertype, 0x88B5 ("local experimental"), through the same interface: the
++ * host reads those frames with an AF_PACKET socket and needs no interface
++ * configuration at all.
++ *
++ * Phone -> host: the console stream.  Every character kernel printf() emits
++ * passes through conslog_putc(), which taps it into a lock-free ring; a kernel
++ * thread drains that ring into frames of at most FUXI_NETLOG_FRAME bytes.  So
++ * "stream logs" means the same text the framebuffer gets -- including a panic,
++ * which is exactly when the screen is useless -- at the cost of one byte copy.
++ *
++ * Host -> phone: one text command per frame.  Deliberately small, and read-only
++ * apart from the log switch:
++ *
++ *   help                this list
++ *   stat                bytes streamed, frames, drops, uptime
++ *   cpu                 current core and measured clock (PMCCNTR, patch 0105)
++ *   log on|off          start/stop streaming the console
++ *   echo <text>         round-trip test
++ *
++ * The tap is lock-free on purpose: printf holds the OS-log lock and runs in
++ * interrupt context and in a panic, so the producer only writes a byte and
++ * bumps a release counter, and the drain thread is the sole consumer.
++ */
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/mbuf.h>
++#include <sys/kernel.h>
++#include <sys/proc.h>
++#include <kern/thread.h>
++#include <kern/clock.h>
++#include <pexpert/pexpert.h>
++
++#define FUXI_NETLOG_SIZE   65536u       /* ring size, power of two */
++#define FUXI_NETLOG_FRAME  1200u        /* payload bytes per USB frame */
++#define FUXI_NETLOG_CHUNK  1024u        /* bytes per drain iteration */
++
++extern int fuxi_usb_net_send(const void *payload, size_t len);
++extern bool fuxi_usb_net_ready(void);
++extern uint32_t fuxi_cpu_khz(void);             /* bsd/dev/fuxi_sample.c */
++extern unsigned int ml_get_cpu_number_local(void);
++int vsnprintf(char *str, size_t size, const char *fmt, va_list ap);
++
++static char fuxi_netlog_ring[FUXI_NETLOG_SIZE];
++static volatile uint32_t fuxi_netlog_head;      /* producer publishes here */
++static volatile uint32_t fuxi_netlog_tail;      /* consumer only */
++static volatile uint32_t fuxi_netlog_dropped;
++static volatile uint64_t fuxi_netlog_bytes;
++static volatile uint64_t fuxi_netlog_frames;
++static bool fuxi_netlog_on;
++
++static uint32_t
++netlog_load(volatile uint32_t *p)
++{
++	return os_atomic_load(p, relaxed);
++}
++
++static uint64_t
++netlog_load64(volatile uint64_t *p)
++{
++	return os_atomic_load(p, relaxed);
++}
++
++/*
++ * Producer: called from conslog_putc() for every console character.  Must not
++ * block, allocate, or take a lock that printf might already hold.
++ */
++void
++fuxi_netlog_putc(char c)
++{
++	uint32_t head, tail;
++
++	if (!fuxi_netlog_on) {
++		return;
++	}
++	head = netlog_load(&fuxi_netlog_head);
++	tail = netlog_load(&fuxi_netlog_tail);
++	if (head - tail >= FUXI_NETLOG_SIZE) {
++		os_atomic_store(&fuxi_netlog_dropped,
++		    netlog_load(&fuxi_netlog_dropped) + 1, relaxed);
++		return;
++	}
++	fuxi_netlog_ring[head & (FUXI_NETLOG_SIZE - 1)] = c;
++	os_atomic_store(&fuxi_netlog_head, head + 1, release);
++}
++
++static void
++netlog_send(const void *buf, size_t len)
++{
++	if (!fuxi_usb_net_ready()) {
++		return;
++	}
++	while (len > 0) {
++		size_t n = MIN(len, (size_t)FUXI_NETLOG_FRAME);
++		if (fuxi_usb_net_send(buf, n) != 0) {
++			return;
++		}
++		os_atomic_store(&fuxi_netlog_frames,
++		    netlog_load64(&fuxi_netlog_frames) + 1, relaxed);
++		buf = (const char *)buf + n;
++		len -= n;
++	}
++}
++
++static void
++netlog_reply(const char *fmt, ...)
++{
++	char buf[256];
++	va_list ap;
++	int n;
++
++	va_start(ap, fmt);
++	n = vsnprintf(buf, sizeof(buf), fmt, ap);
++	va_end(ap);
++	if (n > 0) {
++		netlog_send(buf, (size_t)MIN(n, (int)sizeof(buf) - 1));
++	}
++}
++
++static void
++netlog_cmd(char *line)
++{
++	size_t len = strlen(line);
++
++	while (len > 0 && (line[len - 1] == '\r' || line[len - 1] == '\n')) {
++		line[--len] = '\0';
++	}
++	if (len == 0) {
++		return;
++	}
++	if (strcmp(line, "help") == 0) {
++		netlog_reply("FUXI netlog: stat | cpu | log on|off | echo <text> | help\n");
++	} else if (strcmp(line, "stat") == 0) {
++		uint64_t up = 0, up_ns = 0;
++		clock_get_uptime(&up);
++		absolutetime_to_nanoseconds(up, &up_ns);
++		netlog_reply("stat: %llu bytes in %llu frames, %u dropped, %u queued, "
++		    "uptime %llu s, stream %s\n",
++		    netlog_load64(&fuxi_netlog_bytes), netlog_load64(&fuxi_netlog_frames),
++		    netlog_load(&fuxi_netlog_dropped),
++		    netlog_load(&fuxi_netlog_head) - netlog_load(&fuxi_netlog_tail),
++		    up_ns / NSEC_PER_SEC, fuxi_netlog_on ? "on" : "off");
++	} else if (strcmp(line, "cpu") == 0) {
++		uint32_t khz = fuxi_cpu_khz();
++		if (khz) {
++			netlog_reply("cpu: cpu%u %u.%03u MHz\n", ml_get_cpu_number_local(),
++			    khz / 1000, khz % 1000);
++		} else {
++			netlog_reply("cpu: cpu%u clock unreadable (PMCCNTR off)\n",
++			    ml_get_cpu_number_local());
++		}
++	} else if (strcmp(line, "log off") == 0) {
++		fuxi_netlog_on = false;
++		netlog_reply("log: off\n");
++	} else if (strcmp(line, "log on") == 0) {
++		fuxi_netlog_on = true;
++		netlog_reply("log: on\n");
++	} else if (strncmp(line, "echo ", 5) == 0) {
++		netlog_reply("echo: %s\n", line + 5);
++	} else {
++		netlog_reply("?: %s (try help)\n", line);
++	}
++}
++
++/* Called from the USB receive path for frames carrying FUXI_NETLOG_ETHERTYPE. */
++void
++fuxi_netlog_rx(const void *payload, size_t len)
++{
++	char line[256];
++	size_t n = MIN(len, sizeof(line) - 1);
++
++	memcpy(line, payload, n);
++	line[n] = '\0';
++	netlog_cmd(line);
++}
++
++static void
++netlog_thread(__unused void *arg, __unused wait_result_t wr)
++{
++	static char chunk[FUXI_NETLOG_CHUNK];
++
++	for (;;) {
++		uint32_t head = netlog_load(&fuxi_netlog_head);
++		uint32_t tail = netlog_load(&fuxi_netlog_tail);
++
++		if (head != tail && fuxi_usb_net_ready()) {
++			uint32_t n = 0;
++			while (tail != head && n < sizeof(chunk)) {
++				chunk[n++] = fuxi_netlog_ring[tail & (FUXI_NETLOG_SIZE - 1)];
++				tail++;
++			}
++			os_atomic_store(&fuxi_netlog_tail, tail, release);
++			os_atomic_store(&fuxi_netlog_bytes,
++			    netlog_load64(&fuxi_netlog_bytes) + n, relaxed);
++			netlog_send(chunk, n);
++			continue;                       /* more may be waiting */
++		}
++		(void)tsleep((caddr_t)&fuxi_netlog_tail, PZERO, "fuxilog", 1);
++	}
++}
++
++void
++fuxi_netlog_start(void)
++{
++	int on = 1;
++	thread_t thread;
++
++	if (fuxi_netlog_on) {
++		return;
++	}
++	if (PE_parse_boot_argn("fuxinet", &on, sizeof(on)) && on == 0) {
++		printf("FUXI netlog: disabled by fuxinet=0\n");
++		return;
++	}
++	fuxi_netlog_on = true;
++	if (kernel_thread_start(netlog_thread, NULL, &thread) == KERN_SUCCESS) {
++		thread_deallocate(thread);
++		printf("FUXI netlog: ethertype 0x88b5 over the USB link, host side "
++		    "tools/fuxi-netlog.py\n");
++	}
++}
