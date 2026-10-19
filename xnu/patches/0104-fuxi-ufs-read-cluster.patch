@@ -1,0 +1,328 @@
+fuxi: 0104 -- read clustering: per-slot read-ahead window (ufsra, 256 KiB)
+
+The driver serves each strategy call with its own SCSI read, and the VFS/HFS+
+layer issues ~4 KiB per call, so the 1 MiB bounce buffer is never filled: a cold
+boot of the 3.3 GB dyld shared cache is order 800k separate 4 KiB commands, each
+one a doorbell, a poll and a completion.  0103 makes those overlap across eight
+slots; it does not reduce the count.  This does.
+
+On a read smaller than RA_SMALL_READ (64 KiB) the slot fetches an ALIGNED window
+(RA_DEFAULT_KIB = 256 KiB, i.e. 64 device blocks) with ONE command into its own
+bounce buffer and serves the requested range out of it.  The next sequential
+4 KiB reads hit the window and are a memcpy with no command at all.  Measured
+against the request size that is 64x fewer reads; a 64 KiB-granularity workload
+still sees 4x.  Boot argument ufsra=<KiB> sets the size (clamped to the 1 MiB
+bounce buffer, rounded up to RA_MIN_KIB = 8); ufsra=0 disables the window
+entirely and restores the pre-0104 one-command-per-request path, which is the
+A/B baseline on the same kernel.
+
+Correctness rules, in order of how badly they fail:
+  * the window is PER SLOT and lives in that slot's bounce buffer.  A window
+    shared between slots would be the same single-bounce data-corruption bug
+    0103 removed.
+  * every command that moves data through a slot's bounce buffer clears that
+    slot's window first (ufs_scsi_slot, len != 0): the buffer IS the window.
+  * every completed write and every SYNCHRONIZE CACHE bumps su.write_seq, and a
+    window is only served while slot->win_seq still matches it.  That
+    invalidates the windows of ALL slots without walking the array -- a write
+    through slot B must not leave slot A serving a pre-write copy of the same
+    blocks, which is exactly how a filesystem gets corrupted.
+  * the window start is aligned to its own size in device-block space and then
+    CLAMPED to su.first_block .. su.first_block + su.nblocks - 1, and its length
+    is clamped to the partition end.  A window can therefore never name a block
+    outside the partition, and a read past the partition end still returns
+    EINVAL from the unchanged bounds check in fuxi_ufs_strategy.
+  * a window is used only when it FULLY contains the requested blocks, and the
+    fill checks containment against the CLAMPED start/length rather than only
+    the size -- a window pinned to the partition base can have enough blocks and
+    still end before the request does, which would have served the wrong blocks.
+    On a partial overlap or a miss the old window is dropped and one aligned
+    window covering the whole request is fetched; this never serves part of a
+    request from an old window plus part from a new one, so a misaligned request
+    cannot return a mixed/stale range.  A request the window cannot contain
+    (64 KiB <= request, or a window clamped smaller than the request) falls back
+    to the plain per-request read.
+  * writes, the GPT watch and the log flusher do not use the window at all:
+    the GPT watch reads absolute block 1, which is below su.first_block, so
+    slot_window_fill refuses it (ENOENT) and it takes the plain path.
+
+No change to the write path, the partition bounds, the 'lba < 6' guard or the
+GPT fence: the only fencing code touched is the addition of the write_seq bump
+after a write and after a cache flush.
+
+Strings that prove this patch applied, for the artifact check:
+'read-ahead window %u KiB (%u blocks), ufsra=0 disables' and 'ufsra'.
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
+@@ -80,6 +80,24 @@
+ /* Parallelism: 8 slots for 8 cores. */
+ #define UFS_MT_DEPTH    8
+ 
++/*
++ * Read-ahead window.
++ *
++ * The VFS/HFS+ layer issues ~4 KiB per strategy call, so a 1 MiB bounce buffer
++ * is never filled by a single command: a cold boot of the 3.3 GB dyld share
++ * cache is order 800k separate 4 KiB SCSI reads. A window of RA_DEFAULT_KIB is
++ * fetched by ONE command into the slot's bounce buffer and the following
++ * sequential reads are memcpy'd out of it, so the command count drops by the
++ * window/request ratio (256 KiB / 4 KiB = 64).
++ *
++ * Tunable at boot: ufsra=<KiB>, 0 disables the window entirely (plain per-request
++ * reads, the pre-clustering behaviour), which is what makes an A/B comparison
++ * possible on the same kernel.
++ */
++#define RA_DEFAULT_KIB  256u
++#define RA_MIN_KIB      8u
++#define RA_SMALL_READ   (64u << 10)     /* only requests smaller than this use a window */
++
+ struct utrd {
+ 	uint32_t dw0, dw1, dw2, dw3;
+ 	uint32_t ucdba, ucdbau;
+@@ -109,6 +127,15 @@
+ 	uint32_t tag;
+ 	bool     busy;
+ 	int      wait_chan;
++	/*
++	 * Read-ahead window, in device blocks, held in THIS slot's bounce
++	 * buffer at offset 0. Per slot on purpose: a window shared between
++	 * slots would be the same data-corruption bug the single bounce
++	 * buffer had. win_blocks == 0 means "no window".
++	 */
++	uint64_t win_lba;
++	uint32_t win_blocks;
++	uint64_t win_seq;                       /* su.write_seq at fill time */
+ };
+ 
+ static struct {
+@@ -127,6 +154,8 @@
+ 	bool        ready;
+ 	struct ufs_slot slots[UFS_MT_DEPTH];
+ 	int         free_chan;
++	uint32_t    ra_blocks;                  /* read-ahead window size, blocks; 0 = off */
++	uint64_t    write_seq;                  /* bumped by every write / cache flush */
+ } su;
+ 
+ static LCK_GRP_DECLARE(fuxi_ufs_grp, "fuxi_ufs");
+@@ -238,6 +267,14 @@
+ 	uint32_t slotbit  = 1u << slot->index;
+ 
+ 	assert(len <= BOUNCE_SIZE);
++	/*
++	 * Any command that moves data through this slot's bounce buffer
++	 * invalidates the slot's read-ahead window: the bounce buffer IS the
++	 * window's storage, so those bytes are overwritten by this transfer.
++	 */
++	if (len) {
++		slot->win_blocks = 0;
++	}
+ 	bzero(utrd, sizeof(*utrd));
+ 	bzero(ucd, sizeof(*ucd));
+ 
+@@ -383,6 +420,120 @@
+ }
+ 
+ /*
++ * Read-ahead window, per slot.
++ *
++ * A window is trusted only when it fully covers the requested blocks and no
++ * write or cache flush has completed since it was filled (su.write_seq). A
++ * stale window handed back as data would corrupt the root filesystem, so
++ * everything here is checked rather than assumed: full containment, a matching
++ * write sequence, and partition bounds on every fill.
++ */
++static bool
++slot_window_has(struct ufs_slot *slot, uint64_t lba, uint32_t nblocks)
++{
++	return slot->win_blocks != 0 &&
++	    slot->win_seq == os_atomic_load(&su.write_seq, relaxed) &&
++	    nblocks <= slot->win_blocks &&
++	    lba >= slot->win_lba &&
++	    lba - slot->win_lba <= slot->win_blocks - nblocks;
++}
++
++static void
++slot_window_drop(struct ufs_slot *slot)
++{
++	slot->win_blocks = 0;
++}
++
++/*
++ * Bring blocks [lba, lba + nblocks) into the slot's bounce buffer as part of an
++ * aligned window. Returns 0 and the byte offset of the first requested block,
++ * ENOENT when no window can serve this request (caller falls back to a plain
++ * read), or an errno from the command.
++ *
++ * The start is aligned to the window size in device-block space and then
++ * CLAMPED to the partition, and the length is clamped to the partition end as
++ * well, so a window can never name a block outside
++ * su.first_block .. su.first_block + su.nblocks - 1. A request that the clamped
++ * window cannot fully contain is refused (ENOENT) rather than partly served.
++ */
++static int
++slot_window_fill(struct ufs_slot *slot, uint64_t lba, uint32_t nblocks, uint32_t *off)
++{
++	uint64_t base = su.first_block;
++	uint64_t end = su.first_block + su.nblocks;     /* exclusive */
++	uint64_t start, blocks;
++	int error;
++
++	if (su.ra_blocks == 0 || nblocks > su.ra_blocks) {
++		return ENOENT;
++	}
++	/* The caller checked the partition, but a window must never rely on that. */
++	if (lba < base || lba + nblocks > end) {
++		return ENOENT;
++	}
++	start = lba - (lba % su.ra_blocks);
++	if (start < base) {
++		start = base;
++	}
++	blocks = MIN((uint64_t)su.ra_blocks, end - start);
++	/*
++	 * Containment, not just size: clamping the start up to the partition base
++	 * (or the length down at the partition end) can leave a window that has
++	 * nblocks blocks but still ends before the request does.  Serving that
++	 * would hand back the wrong blocks, so refuse and let the caller read
++	 * plainly.
++	 */
++	if (lba < start || lba + nblocks > start + blocks) {
++		return ENOENT;
++	}
++	error = ufs_read_blocks_slot(slot, start, (uint32_t)blocks);
++	if (error) {
++		slot_window_drop(slot);
++		return error;
++	}
++	slot->win_lba = start;
++	slot->win_blocks = (uint32_t)blocks;
++	slot->win_seq = os_atomic_load(&su.write_seq, relaxed);
++	*off = (uint32_t)((lba - start) * UFS_BLOCK);
++	return 0;
++}
++
++/*
++ * Read partition blocks [lba, lba + nblocks) and return a pointer to them, plus
++ * an implicit "valid until the slot's next command". Small reads are served
++ * from (or bring in) the slot's window; everything else uses the bounce buffer
++ * directly, exactly as before this change.
++ */
++static int
++ufs_read_blocks_clustered(struct ufs_slot *slot, uint64_t lba, uint32_t nblocks,
++    const void **buf, bool small)
++{
++	uint32_t off = 0;
++	int error;
++
++	if (small && slot_window_has(slot, lba, nblocks)) {
++		*buf = (const char *)slot_bounce(slot) + (lba - slot->win_lba) * UFS_BLOCK;
++		return 0;
++	}
++	if (small) {
++		error = slot_window_fill(slot, lba, nblocks, &off);
++		if (error == 0) {
++			*buf = (const char *)slot_bounce(slot) + off;
++			return 0;
++		}
++		if (error != ENOENT) {
++			return error;
++		}
++	}
++	error = ufs_read_blocks_slot(slot, lba, nblocks);
++	if (error) {
++		return error;
++	}
++	*buf = slot_bounce(slot);
++	return 0;
++}
++
++/*
+  * topaz: on 2026-10-19 the LUN0 GPT was found destroyed after iOS sessions.
+  * Remember both GPT copies and fence them off; a watchdog thread re-reads
+  * them and panics the moment they change.
+@@ -407,7 +558,16 @@
+ 		(uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8), (uint8_t)lba,
+ 		0, (uint8_t)(count >> 8), (uint8_t)count, 0
+ 	};
+-	return ufs_scsi_slot(slot, cdb, sizeof(cdb), count * UFS_BLOCK, true);
++	int error = ufs_scsi_slot(slot, cdb, sizeof(cdb), count * UFS_BLOCK, true);
++	/*
++	 * A window in ANY slot may now hold a pre-write copy of these blocks, so
++	 * bump write_seq: every slot's window checks it before serving, which
++	 * invalidates them all without walking the array. Bumped on failure too,
++	 * because a failed write may still have landed partially.
++	 */
++	os_atomic_inc_orig(&su.write_seq, relaxed);
++	slot_window_drop(slot);
++	return error;
+ }
+ 
+ static int
+@@ -423,7 +583,10 @@
+ ufs_sync_cache_slot(struct ufs_slot *slot)
+ {
+ 	static const uint8_t cdb[10] = { 0x35 };       /* SYNCHRONIZE CACHE(10) */
+-	return ufs_scsi_slot(slot, cdb, sizeof(cdb), 0, false);
++	int error = ufs_scsi_slot(slot, cdb, sizeof(cdb), 0, false);
++	/* A flush is a durability point: drop every window with it. */
++	os_atomic_inc_orig(&su.write_seq, relaxed);
++	return error;
+ }
+ 
+ static int
+@@ -602,9 +765,16 @@
+ 		uint32_t want = MIN(count - done, BOUNCE_SIZE - skip);
+ 		uint32_t blocks = (skip + want + UFS_BLOCK - 1) / UFS_BLOCK;
+ 		if (rd) {
+-			error = ufs_read_blocks_slot(slot, su.first_block + lba, blocks);
++			const void *rbuf = NULL;
++			/*
++			 * Small reads go through the slot's read-ahead window: one
++			 * 256 KiB command serves the next 63 sequential 4 KiB
++			 * requests with a memcpy and no SCSI command at all.
++			 */
++			error = ufs_read_blocks_clustered(slot, su.first_block + lba, blocks,
++			    &rbuf, count < RA_SMALL_READ);
+ 			if (!error) {
+-				memcpy(vaddr + done, (const char *)bounce + skip, want);
++				memcpy(vaddr + done, (const char *)rbuf + skip, want);
+ 			}
+ 		} else {
+ 			/* Partial device blocks at either end: read, merge, write. */
+@@ -846,6 +1016,23 @@
+ 		return error;
+ 	}
+ 
++	/*
++	 * Read-ahead window, in KiB (ufsra=256 is the default 256 KiB).
++	 * ufsra=0 disables it: every read then becomes its own SCSI command,
++	 * which is the pre-clustering behaviour and the A/B baseline. The size
++	 * is clamped to the bounce buffer, and a window smaller than RA_MIN_KIB
++	 * cannot pay for itself, so it is rounded up rather than honoured.
++	 */
++	uint32_t ra_kib = RA_DEFAULT_KIB;
++	(void)PE_parse_boot_argn("ufsra", &ra_kib, sizeof(ra_kib));
++	if (ra_kib != 0 && ra_kib < RA_MIN_KIB) {
++		ra_kib = RA_MIN_KIB;
++	}
++	if (ra_kib > (BOUNCE_SIZE >> 10)) {
++		ra_kib = BOUNCE_SIZE >> 10;
++	}
++	su.ra_blocks = (ra_kib << 10) / UFS_BLOCK;
++
+ 	su.bmajor = bdevsw_add(-1, &fuxi_ufs_bdevsw);
+ 	if (su.bmajor < 0) {
+ 		return ENXIO;
+@@ -865,6 +1052,12 @@
+ 	    "DMA at 0x%llx, %d slots (MT)\n",
+ 	    want, su.lun, su.first_block, su.nblocks * UFS_BLOCK >> 20,
+ 	    su.writable ? "read-write" : "read-only", su.dma_pa, UFS_MT_DEPTH);
++	if (su.ra_blocks) {
++		printf("FUXI UFS: read-ahead window %u KiB (%u blocks), ufsra=0 disables\n",
++		    su.ra_blocks * UFS_BLOCK >> 10, su.ra_blocks);
++	} else {
++		printf("FUXI UFS: read-ahead disabled (ufsra=0)\n");
++	}
+ 
+ 	fuxi_log_start();
+ 	fuxi_sample_start();
