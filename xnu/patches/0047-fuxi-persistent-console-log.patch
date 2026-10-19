@@ -35,7 +35,7 @@
 + *   "FUXI-LOG" | u32 version 1 | u32 ring size | u64 total bytes written
 + *   | u64 flush sequence
 + * ring offset of byte n = n % ring size. Read it from a recovery with
-+ * tools/sweet-log-pull.sh. Disabled with boot-arg sweetlog=0.
++ * tools/fuxi-log-pull.sh. Disabled with boot-arg sweetlog=0.
 + */
 +#define FUXI_LOG_SIZE          (4u << 20)
 +#define FUXI_LOG_BLOCKS        (1 + FUXI_LOG_SIZE / UFS_BLOCK)

@@ -84,7 +84,7 @@ Download the iPhone X (iPhone10,3) iOS 16.7.16 (20H392) IPSW from Apple. On Linu
 # OS, SystemOS and AppOS disk images (see BuildManifest.plist, D22AP Erase identity)
 sudo bash tools/mkiosroot.sh OS.dmg SystemOS.dmg AppOS.dmg ios16-root.img 16G
 sudo mount -t hfsplus -o loop,force ios16-root.img /mnt/iosroot
-sudo python3 tools/sweet-root-tweaks.py /mnt/iosroot
+sudo python3 tools/fuxi-root-tweaks.py /mnt/iosroot
 sudo umount /mnt/iosroot
 img2simg ios16-root.img ios16-root.simg
 ```
@@ -145,8 +145,8 @@ The shim screen (red) shows `MMFR0`, the Gold hand-off and `SPEED silver=… gol
 | `.github/workflows/xnu.yml` | Kernel CI build |
 | `tools/mkadt.py` | Apple Device Tree for topaz (Gold cores, memory map, MMIO) and the iPhone X identity |
 | `tools/mkpayload.py` | Packs kernel + ADT + boot-args into the shim payload |
-| `tools/mkiosroot.sh`, `tools/sweet-root-tweaks.py` | Build and adjust the HFS+ iOS root |
-| `tools/sweet-crash.py`, `sweet-log.py` | Symbolicate crash reports, read the persistent log |
+| `tools/mkiosroot.sh`, `tools/fuxi-root-tweaks.py` | Build and adjust the HFS+ iOS root |
+| `tools/fuxi-crash.py`, `fuxi-log.py` | Symbolicate crash reports, read the persistent log |
 | `NOTES.md` | sweet's engineering log (history of the original port) |
 
 Not in git: partition backups, live device trees, Apple firmware and root images, build trees.
