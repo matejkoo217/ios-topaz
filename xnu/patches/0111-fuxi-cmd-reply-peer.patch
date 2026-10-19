@@ -1,0 +1,91 @@
+fuxi: 0111 -- answer the command channel to the peer, not to "wherever it came from"
+
+Booting 0110 on hardware: ping to 192.168.7.2 answers, ARP resolves, and the
+console stream arrives -- so the link and the receive path are fine -- but every
+command came back with nothing.  The cause is in my own thread: sock_receivembuf()
+does not return with msg_name filled, so replying to the datagram's source sent
+answers to 0.0.0.0:0.
+
+This link is a point-to-point pair with exactly one host, so the reply now goes to
+192.168.7.1:5141 unconditionally, and the host tool binds that port instead of
+waiting on an ephemeral one.  Receipt is also echoed into the console stream
+("FUXI CMD: rx '<line>'") so a datagram that reaches the kernel is visible even
+when the answer is not, which is what would have made this obvious in one look.
+
+Harness: applied=110 skipped=0.
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -888,21 +888,39 @@
+  */
+ #define FUXI_CMD_PORT   5141u
+ 
++/*
++ * The reply goes to a fixed peer, not to the source of the datagram.
++ * sock_receivembuf() does not come back with msg_name filled, so replying to
++ * "wherever it came from" sent answers to 0.0.0.0:0 and the host saw nothing.
++ * There is exactly one host on this link, and it owns the other end of the
++ * point-to-point pair, so its address is known.
++ */
++#define FUXI_CMD_PEER   ((uint32_t)0xc0a80701)   /* 192.168.7.1 */
++
+ static void
+-ud_cmd_reply(socket_t so, struct sockaddr_in *to, const char *text)
++ud_cmd_reply(socket_t so, const char *text)
+ {
++	struct sockaddr_in to;
+ 	struct iovec iov = { .iov_base = (void *)text, .iov_len = strlen(text) };
+-	struct msghdr msg = {
+-		.msg_name = to, .msg_namelen = (socklen_t)sizeof(*to),
+-		.msg_iov = &iov, .msg_iovlen = 1,
+-	};
++	struct msghdr msg;
+ 	size_t sent = 0;
+ 
++	bzero(&to, sizeof(to));
++	to.sin_len = sizeof(to);
++	to.sin_family = AF_INET;
++	to.sin_port = htons(FUXI_CMD_PORT);
++	to.sin_addr.s_addr = htonl(FUXI_CMD_PEER);
++
++	bzero(&msg, sizeof(msg));
++	msg.msg_name = &to;
++	msg.msg_namelen = (socklen_t)sizeof(to);
++	msg.msg_iov = &iov;
++	msg.msg_iovlen = 1;
+ 	(void)sock_send(so, &msg, 0, &sent);
+ }
+ 
+ static void
+-ud_cmd_dispatch(socket_t so, struct sockaddr_in *from, char *line)
++ud_cmd_dispatch(socket_t so, char *line)
+ {
+ 	char reply[160];
+ 	size_t len = strlen(line);
+@@ -920,7 +938,7 @@
+ 		 * hatch.  It resets to whatever the boot partition holds (Android),
+ 		 * where the host can 'adb reboot bootloader' again.
+ 		 */
+-		ud_cmd_reply(so, from, "restart: resetting\n");
++		ud_cmd_reply(so, "restart: resetting\n");
+ 		printf("FUXI CMD: restart requested over usb\n");
+ 		ud_sleep_ms(50);                /* let the datagram leave first */
+ 		PEHaltRestart(FUXI_PE_RESTART_CPU);
+@@ -945,7 +963,7 @@
+ 		n = snprintf(reply, sizeof(reply), "?: %s (try help)\n", line);
+ 	}
+ 	if (n > 0) {
+-		ud_cmd_reply(so, from, reply);
++		ud_cmd_reply(so, reply);
+ 	}
+ }
+ 
+@@ -998,7 +1016,8 @@
+ 		mbuf_copydata(m, 0, len, line);
+ 		mbuf_freem(m);
+ 		line[len] = '\0';
+-		ud_cmd_dispatch(so, &from, line);
++		printf("FUXI CMD: rx '%.64s'\n", line);
++		ud_cmd_dispatch(so, line);
+ 	}
+ }
+ 

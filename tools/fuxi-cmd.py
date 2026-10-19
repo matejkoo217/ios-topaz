@@ -34,6 +34,10 @@ def main():
 
     line = " ".join(args.command)
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Replies are addressed back to 192.168.7.1:5141 (the phone pins its peer, see
+    # patch 0111), so bind that port instead of waiting on an ephemeral one.
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("0.0.0.0", PORT))
     s.settimeout(args.wait)
     s.sendto((line + "\n").encode(), (PHONE, PORT))
     got = b""
