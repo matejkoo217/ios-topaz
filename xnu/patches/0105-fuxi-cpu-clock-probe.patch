@@ -1,0 +1,129 @@
+fuxi: 0105 -- report the actual CPU clock, because nothing ever sets it
+
+This port has no DVFS: no EPSS perf-state writes, no CPR, no cpufreq, not a
+single reference to voltage-states in any patch. The cores therefore run at
+whatever rate the bootloader left them at for the whole boot, and "the boot is
+slow" currently cannot be attributed to the disk, the window, or 8 slots without
+knowing that rate. So measure it.
+
+PMCCNTR_EL0 counts CPU cycles, which makes the clock directly measurable: enable
+the counter (PMCR_EL0.E, D=0 so it counts every cycle, PMCNTENSET_EL0 bit 31),
+then busy-wait ~20 ms against the always-on arch timer (CNTPCT_EL0 / CNTFRQ_EL0)
+and divide. Cost: 20 ms per report, and reports happen once at thread start plus
+once per sample line (samples are 90 s apart, then 120 s).
+
+Output:
+
+  FUXI CPU: boot cpu0 1785.000 MHz (midr 0x411fd4c1, timer 19200000 Hz)
+  SMP --- sample 0 cpu 3 1785 MHz
+  ...
+
+If the PMU is trapped at EL2 (MDCR_EL2.TPM) the counter reads as flat and the
+line says so instead of printing a bogus number: "clock unreadable, PMCCNTR not
+counting". MIDR is printed either way, so the cluster identity (X3 / A715 / A510)
+is in the log even if the counter is unavailable.
+
+Read it as: ~300-600 MHz on a little core means the CPU is the wall and DVFS is
+the next piece of work; ~1.8 GHz means the clock is sane and the boot time is
+somewhere else (disk command count, launchd/AKS churn).
+--- a/bsd/dev/fuxi_sample.c
++++ b/bsd/dev/fuxi_sample.c
+@@ -11,6 +11,11 @@
+  * syscall stub in pc and its caller in lr/bt.
+  *
+  * First sample 90 s after start, then every 120 s, 40 samples at most.
++ *
++ * It also reports the CPU clock, because this port has no DVFS at all (no
++ * EPSS/CPR driver, no cpufreq), so the cores stay at whatever rate the
++ * bootloader left them and a slow boot cannot be blamed on the disk without
++ * knowing that number.
+  */
+ #include <sys/param.h>
+ #include <sys/systm.h>
+@@ -45,6 +50,73 @@
+ }
+ 
+ extern void fuxi_sample_task(const char *name, int pid, task_t task);  /* osfmk/kern/exception.c */
++extern unsigned int ml_get_cpu_number_local(void);                      /* osfmk/arm */
++
++/*
++ * CPU clock probe.  PMCCNTR_EL0 counts CPU cycles, so a ~20 ms busy-wait
++ * against the always-on arch timer gives the current core's clock directly.
++ * Returns 0 when the counter is not counting (PMU trapped at EL2), which is
++ * itself worth knowing.
++ */
++static uint64_t
++fuxi_pmccntr(void)
++{
++	uint64_t v;
++	__asm__ __volatile__("isb; mrs %0, pmccntr_el0" : "=r"(v));
++	return v;
++}
++
++static uint64_t
++fuxi_cntpct(void)
++{
++	uint64_t v;
++	__asm__ __volatile__("isb; mrs %0, cntpct_el0" : "=r"(v));
++	return v;
++}
++
++static uint32_t
++fuxi_cpu_khz(void)
++{
++	uint64_t pmcr, cntfrq, c0, c1, t0, t1;
++
++	__asm__ __volatile__("mrs %0, pmcr_el0" : "=r"(pmcr));
++	pmcr |= 1ull << 0;                      /* E: enable the cycle counter */
++	pmcr &= ~(1ull << 3);                   /* D=0: count every cycle, not /64 */
++	__asm__ __volatile__("msr pmcr_el0, %0" : : "r"(pmcr));
++	__asm__ __volatile__("msr pmcntenset_el0, %0" : : "r"(1ull << 31));
++	__asm__ __volatile__("mrs %0, cntfrq_el0" : "=r"(cntfrq));
++	if (cntfrq == 0) {
++		return 0;
++	}
++	c0 = fuxi_pmccntr();
++	t0 = fuxi_cntpct();
++	do {
++		t1 = fuxi_cntpct();
++	} while (t1 - t0 < cntfrq / 50);        /* ~20 ms */
++	c1 = fuxi_pmccntr();
++	if (c1 <= c0) {
++		return 0;
++	}
++	return (uint32_t)(((c1 - c0) * cntfrq) / ((t1 - t0) * 1000));
++}
++
++static void
++fuxi_cpu_report(const char *tag)
++{
++	uint64_t midr, cntfrq;
++	uint32_t khz;
++
++	__asm__ __volatile__("mrs %0, midr_el1" : "=r"(midr));
++	__asm__ __volatile__("mrs %0, cntfrq_el0" : "=r"(cntfrq));
++	khz = fuxi_cpu_khz();
++	if (khz) {
++		printf("FUXI CPU: %s cpu%u %u.%03u MHz (midr 0x%llx, timer %llu Hz)\n",
++		    tag, ml_get_cpu_number_local(), khz / 1000, khz % 1000, midr, cntfrq);
++	} else {
++		printf("FUXI CPU: %s cpu%u clock unreadable, PMCCNTR not counting "
++		    "(midr 0x%llx)\n", tag, ml_get_cpu_number_local(), midr);
++	}
++}
+ 
+ static int
+ fuxi_sample_proc(proc_t p, __unused void *arg)
+@@ -70,9 +142,11 @@
+ 	if (fuxi_sample_names[0] == '-') {
+ 		return;
+ 	}
++	fuxi_cpu_report("boot");
+ 	(void)tsleep(&chan, PZERO, "fuxismp", 90 * hz);
+ 	for (int i = 0; i < 40; i++) {
+-		printf("SMP --- sample %d\n", i);
++		printf("SMP --- sample %d cpu %u %u MHz\n", i,
++		    ml_get_cpu_number_local(), fuxi_cpu_khz() / 1000);
+ 		proc_iterate(PROC_ALLPROCLIST, fuxi_sample_proc, NULL, NULL, NULL);
+ 		(void)tsleep(&chan, PZERO, "fuxismp", 120 * hz);
+ 	}
