@@ -2,6 +2,7 @@
  * Minimal text console on the ABL splash framebuffer. With the MMU off
  * every access is Device memory, so stay aligned (-mstrict-align).
  */
+#define CONSOLE_IMPL 1	/* keep the real definitions under FUXI_FAST */
 #include "console.h"
 #include "font.h"
 
