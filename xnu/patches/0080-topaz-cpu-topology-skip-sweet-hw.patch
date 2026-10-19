@@ -23,7 +23,7 @@ index 6b926fe..40044c8 100644
 +		sweet_touch_init();
 +		sweet_usb_probe();
 +	} else {
-+		printf("SWEET UFS: keys/touch/USB skipped (topaz, sweethw=0)\n");
++		printf("FUXI UFS: keys/touch/USB skipped (fuxi, sweethw=0)\n");
 +	}
  	return 0;
  }
@@ -41,7 +41,7 @@ index 2545cf9..1724396 100644
 +	/* topaz (SM6225): MPIDR Aff1 = cluster, Aff0 = core: 0x0-0x3 A53, 0x100-0x103 A73 */
 +	if ((cpu->phys_id >> 8) > 1 || (cpu->phys_id & 0xff) > 3 ||
  	    topology->num_cpus > SWEET_SMP_MAX_CPUS) {
- 		panic("SWEET CPU: invalid topology cpu=%u mpidr=0x%x count=%u",
+ 		panic("FUXI CPU: invalid topology cpu=%u mpidr=0x%x count=%u",
  		    cpu->cpu_id, cpu->phys_id, topology->num_cpus);
 @@ -82,7 +82,7 @@ SweetCPU::start(IOService *provider)
  	if (!IOCPU::start(provider)) {

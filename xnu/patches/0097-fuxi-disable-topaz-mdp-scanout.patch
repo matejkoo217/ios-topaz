@@ -1,7 +1,7 @@
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
 @@ -202,6 +202,22 @@
- 		IOLog("SWEET FB: no vsync timer\n");
+ 		IOLog("FUXI FB: no vsync timer\n");
  		return false;
  	}
 +#ifndef ARM64_BOARD_CONFIG_FUXI

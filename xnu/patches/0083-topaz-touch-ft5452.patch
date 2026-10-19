@@ -83,13 +83,13 @@ index 03defe6..03064d7 100644
 -	touch_wr(st.gcc, TOUCH_GCC_VOTE, touch_rd(st.gcc, TOUCH_GCC_VOTE) | mask);
 -	uint32_t dfs = touch_rd(st.gcc, TOUCH_RCG + 0x14u);
 -	uint32_t cfg = touch_rd(st.gcc, TOUCH_RCG + 4u);
--	printf("SWEET TOUCH: gcc vote=%#x rcg=%#x cfg=%#x dfs=%#x\n",
+-	printf("FUXI TOUCH: gcc vote=%#x rcg=%#x cfg=%#x dfs=%#x\n",
 -	    touch_rd(st.gcc, TOUCH_GCC_VOTE), touch_rd(st.gcc, TOUCH_RCG), cfg, dfs);
 -	if (dfs & 1u) {
 -		/* SE CLK_SEL=0 selects DFS performance level 0. Do not alter tables. */
 -		cfg = touch_rd(st.gcc, TOUCH_RCG + 0x1cu);
 -		if ((cfg & 0x371fu) != 1u) {
--			printf("SWEET TOUCH: DFS level0=%#x is not XO/1; need clock integration\n", cfg);
+-			printf("FUXI TOUCH: DFS level0=%#x is not XO/1; need clock integration\n", cfg);
 -			return false;
 -		}
 -	} else {
@@ -98,7 +98,7 @@ index 03defe6..03064d7 100644
 -		touch_wr(st.gcc, TOUCH_RCG + 4u, cfg);
 -		touch_wr(st.gcc, TOUCH_RCG, touch_rd(st.gcc, TOUCH_RCG) | 1u);
 -		if (!touch_wait_clear(st.gcc, TOUCH_RCG, 1u)) {
--			printf("SWEET TOUCH: RCG update timeout\n");
+-			printf("FUXI TOUCH: RCG update timeout\n");
 -			return false;
 -		}
 +	/*
@@ -107,24 +107,24 @@ index 03defe6..03064d7 100644
 +	 * with divider 1 = 19.2 MHz, no PLL or voltage change.
 +	 */
 +	touch_wr(st.gcc, TOUCH_GCC_VOTE, touch_rd(st.gcc, TOUCH_GCC_VOTE) | 0x13c0u);
-+	printf("SWEET TOUCH: gcc vote=%#x rcg=%#x cfg=%#x cbcr=%#x\n",
++	printf("FUXI TOUCH: gcc vote=%#x rcg=%#x cfg=%#x cbcr=%#x\n",
 +	    touch_rd(st.gcc, TOUCH_GCC_VOTE), touch_rd(st.gcc, TOUCH_RCG),
 +	    touch_rd(st.gcc, TOUCH_RCG + 4u), touch_rd(st.gcc, TOUCH_RCG - 4u));
 +	touch_wr(st.gcc, TOUCH_RCG + 4u, 1u);
 +	touch_wr(st.gcc, TOUCH_RCG, touch_rd(st.gcc, TOUCH_RCG) | 1u);
 +	if (!touch_wait_clear(st.gcc, TOUCH_RCG, 1u)) {
-+		printf("SWEET TOUCH: RCG update timeout\n");
++		printf("FUXI TOUCH: RCG update timeout\n");
 +		return false;
  	}
 -	const uint32_t branches[] = {0x18004, 0x18008, 0x1800c, 0x18010, 0x18144};
 -	for (unsigned i = 0; i < sizeof(branches) / sizeof(branches[0]); ++i) {
 -		if (!touch_wait_clear(st.gcc, branches[i], 1u << 31)) {
--			printf("SWEET TOUCH: GCC branch %#x halted (%#x)\n", branches[i],
+-			printf("FUXI TOUCH: GCC branch %#x halted (%#x)\n", branches[i],
 -			    touch_rd(st.gcc, branches[i]));
 -			return false;
 -		}
 +	if (!touch_wait_clear(st.gcc, TOUCH_RCG - 4u, 1u << 31)) {
-+		printf("SWEET TOUCH: SE2 branch halted (%#x)\n", touch_rd(st.gcc, TOUCH_RCG - 4u));
++		printf("FUXI TOUCH: SE2 branch halted (%#x)\n", touch_rd(st.gcc, TOUCH_RCG - 4u));
 +		return false;
  	}
  	return true;
@@ -149,8 +149,8 @@ index 03defe6..03064d7 100644
  {
  	uint32_t fw = touch_rd(st.se, SE_FW);
  	uint32_t tx = touch_rd(st.se, SE_HW_TX), rx = touch_rd(st.se, SE_HW_RX);
--	printf("SWEET TOUCH: se7 fw=%#x proto=%u status=%#x tx=%#x rx=%#x ios=%#x\n",
-+	printf("SWEET TOUCH: se2 fw=%#x proto=%u status=%#x tx=%#x rx=%#x ios=%#x\n",
+-	printf("FUXI TOUCH: se7 fw=%#x proto=%u status=%#x tx=%#x rx=%#x ios=%#x\n",
++	printf("FUXI TOUCH: se2 fw=%#x proto=%u status=%#x tx=%#x rx=%#x ios=%#x\n",
  	    fw, (fw >> 8) & 0xffu, touch_rd(st.se, SE_STATUS), tx, rx,
  	    touch_rd(st.se, 0x908));
  	if (((fw >> 8) & 0xffu) != 3u || (touch_rd(st.se, 0x64) & 1u) ||
@@ -158,32 +158,32 @@ index 03defe6..03064d7 100644
  		return false;
  	}
  	if (touch_rd(st.se, SE_STATUS) & 0x1001u) {
--		printf("SWEET TOUCH: SE7 already busy; probes skipped\n");
-+		printf("SWEET TOUCH: SE2 already busy; probes skipped\n");
+-		printf("FUXI TOUCH: SE7 already busy; probes skipped\n");
++		printf("FUXI TOUCH: SE2 already busy; probes skipped\n");
  		return false;
  	}
  	touch_wr(st.se, 0xe18, 0); /* no GSI events */
 @@ -558,37 +564,31 @@ touch_thread(void *arg, wait_result_t result)
  	(void)PE_parse_boot_argn("sweettouchdelay", &delay_s, sizeof(delay_s));
- 	printf("SWEET TOUCH: starting in %u s\n", delay_s);
+ 	printf("FUXI TOUCH: starting in %u s\n", delay_s);
  	touch_wait(delay_s * 1000u);
--	printf("SWEET TOUCH: mapping GCC/TLMM/SE7\n");
+-	printf("FUXI TOUCH: mapping GCC/TLMM/SE7\n");
 -	st.gcc = ml_io_map(TOUCH_GCC_PA, 0x60000);
 -	st.gpio = ml_io_map(TOUCH_NORTH_PA, 0x5b000);
-+	printf("SWEET TOUCH: mapping GCC/TLMM/SE2\n");
++	printf("FUXI TOUCH: mapping GCC/TLMM/SE2\n");
 +	st.gcc = ml_io_map(TOUCH_GCC_PA, 0x80000);
 +	st.west = ml_io_map(TOUCH_WEST_PA, 0x58000);
 +	st.east = ml_io_map(TOUCH_EAST_PA, 0x25000);
  	st.se = ml_io_map(TOUCH_SE_PA, 0x4000);
 -	if (!st.gcc || !st.gpio || !st.se) {
 +	if (!st.gcc || !st.west || !st.east || !st.se) {
- 		printf("SWEET TOUCH: MMIO mapping failed\n");
+ 		printf("FUXI TOUCH: MMIO mapping failed\n");
  		goto out;
  	}
  	if (!touch_clocks() || !touch_se_init()) {
  		goto out;
  	}
--	printf("SWEET TOUCH: TLMM reset=%#x irq=%#x vdd90=%#x; voting L11C through RPMh\n",
+-	printf("FUXI TOUCH: TLMM reset=%#x irq=%#x vdd90=%#x; voting L11C through RPMh\n",
 -	    touch_rd(st.gpio, TOUCH_GPIO_IO(8)), touch_rd(st.gpio, TOUCH_GPIO_IO(9)),
 -	    touch_rd(st.gpio, TOUCH_GPIO_IO(90)));
 -	/* Keep the IC in reset while its rails settle; IRQ stays an input. */
@@ -191,7 +191,7 @@ index 03defe6..03064d7 100644
 -	touch_gpio(8, 0, 3, 3, true, false);
 -	int power_error = sweet_rpmh_vreg_enable("ldoc11", 3200);
 -	if (power_error) {
--		printf("SWEET TOUCH: L11C RPMh enable failed %d; probes skipped\n", power_error);
+-		printf("FUXI TOUCH: L11C RPMh enable failed %d; probes skipped\n", power_error);
 -		goto out;
 -	}
 -	touch_gpio(90, 0, 0, 0, true, true); /* board digital power enable */
@@ -203,7 +203,7 @@ index 03defe6..03064d7 100644
 -	touch_wait(2);
 -	touch_gpio(8, 0, 3, 3, true, true);
 -	touch_wait(300); /* exceeds vendor 5 ms test + 95 ms post-test wait */
-+	printf("SWEET TOUCH: TLMM reset=%#x irq=%#x avdd=%#x\n",
++	printf("FUXI TOUCH: TLMM reset=%#x irq=%#x avdd=%#x\n",
 +	    touch_rd(st.west, TOUCH_GPIO_IO(TOUCH_PIN_RESET)),
 +	    touch_rd(st.west, TOUCH_GPIO_IO(TOUCH_PIN_IRQ)),
 +	    touch_rd(st.east, TOUCH_GPIO_IO(TOUCH_PIN_AVDD)));
@@ -252,8 +252,8 @@ index 40044c8..af6e35c 100644
 -		sweet_touch_init();
  		sweet_usb_probe();
  	} else {
--		printf("SWEET UFS: keys/touch/USB skipped (topaz, sweethw=0)\n");
-+		printf("SWEET UFS: keys/USB skipped (topaz, sweethw=0)\n");
+-		printf("FUXI UFS: keys/touch/USB skipped (fuxi, sweethw=0)\n");
++		printf("FUXI UFS: keys/USB skipped (fuxi, sweethw=0)\n");
  	}
  	return 0;
  }

@@ -91,9 +91,9 @@ five_sec:
 path:
 	.asciz	"/dev/console"
 hello:
-	.ascii	"\n*** SWEET userspace: init running as PID "
+	.ascii	"\n*** FUXI userspace: init running as PID "
 hello_tail:
 	.ascii	" ***\n"
 alive:
-	.ascii	"SWEET init: still alive\n"
+	.ascii	"FUXI init: still alive\n"
 alive_end:

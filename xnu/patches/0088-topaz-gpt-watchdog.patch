@@ -25,7 +25,7 @@ index b7be070..467ce46 100644
 -	    count > su.nblocks - (lba - su.first_block) || lba + count - 1 > UINT32_MAX) {
 +	    count > su.nblocks - (lba - su.first_block) || lba + count - 1 > UINT32_MAX ||
 +	    lba < 6 || (gpt_alt && lba + count - 1 >= gpt_alt - 4)) {
- 		printf("SWEET UFS: refusing write of %u blocks at 0x%llx\n", count, lba);
+ 		printf("FUXI UFS: refusing write of %u blocks at 0x%llx\n", count, lba);
  		return EPERM;
  	}
 @@ -313,6 +323,9 @@ ufs_find_partition(const char *want)
@@ -45,11 +45,11 @@ index b7be070..467ce46 100644
 +		if (ufs_read_blocks(gpt_alt, 1) == 0 && memcmp(b, "EFI PART", 8) == 0) {
 +			memcpy(&gpt_bhcrc, b + 16, 4);
 +		}
-+		printf("SWEET UFS: GPT LUN0 hcrc %#x ecrc %#x backup@%#llx hcrc %#x\n",
++		printf("FUXI UFS: GPT LUN0 hcrc %#x ecrc %#x backup@%#llx hcrc %#x\n",
 +		    gpt_hcrc, gpt_ecrc, gpt_alt, gpt_bhcrc);
  		return 0;
  	}
- 	printf("SWEET UFS: no GPT partition named \"%s\"\n", want);
+ 	printf("FUXI UFS: no GPT partition named \"%s\"\n", want);
 @@ -583,6 +601,40 @@ static const struct cdevsw sweet_ufs_cdevsw = {
  	.d_type       = D_DISK,
  };
@@ -82,7 +82,7 @@ index b7be070..467ce46 100644
 +		if (!ok || h != gpt_hcrc || e != gpt_ecrc || (gpt_bhcrc && bh != gpt_bhcrc)) {
 +			uint64_t ns;
 +			absolutetime_to_nanoseconds(mach_absolute_time() - start, &ns);
-+			panic("SWEET UFS: GPT LUN0 CHANGED after %llu s: primary %s hcrc %#x/%#x ecrc %#x/%#x backup hcrc %#x/%#x",
++			panic("FUXI UFS: GPT LUN0 CHANGED after %llu s: primary %s hcrc %#x/%#x ecrc %#x/%#x backup hcrc %#x/%#x",
 +			    ns / NSEC_PER_SEC, ok ? "present" : "MISSING", h, gpt_hcrc, e, gpt_ecrc, bh, gpt_bhcrc);
 +		}
 +	}

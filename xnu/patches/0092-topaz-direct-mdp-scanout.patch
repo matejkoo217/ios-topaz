@@ -27,7 +27,7 @@ index 2094443..bd72f09 100644
  	bool          fPowerOff;      /* RequestPowerChange(0) */
  	uint32_t      fFadeStep;      /* fade-out steps done while off */
 @@ -192,6 +202,17 @@ AppleCLCD::start(IOService *provider)
- 		IOLog("SWEET FB: no vsync timer\n");
+ 		IOLog("FUXI FB: no vsync timer\n");
  		return false;
  	}
 +	fVig0 = (volatile uint32_t *)ml_io_map(0x05e05000, 0x1000);
@@ -37,7 +37,7 @@ index 2094443..bd72f09 100644
 +		fBootStride = fVig0[0x24 / 4];
 +		fScanPhys = fBootSrc;
 +		fScanStride = fBootStride;
-+		IOLog("SWEET FB: MDP VIG0 src %#x stride %u (boot), direct scanout ready\n",
++		IOLog("FUXI FB: MDP VIG0 src %#x stride %u (boot), direct scanout ready\n",
 +		    fBootSrc, fBootStride);
 +		sweet_scanout_set_geometry(fWidth, fHeight, fLogicalW, fLogicalH);
 +	}

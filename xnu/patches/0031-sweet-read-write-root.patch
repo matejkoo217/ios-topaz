@@ -31,7 +31,7 @@
 +		 * there is no fsck_hfs before the root mount: take it anyway.
 +		 */
 +		if (vfs_flags(hfsmp->hfs_mp) & MNT_ROOTFS) {
-+			printf("hfs_mounthfsplus: SWEET: mounting dirty non-journaled root read-write\n");
++			printf("hfs_mounthfsplus: FUXI: mounting dirty non-journaled root read-write\n");
 +		} else {
 +#endif
  		if (HFS_MOUNT_DEBUG) {

@@ -245,7 +245,7 @@ index 0000000..8f4c808
 +		}
 +	}
 +	__asm__ volatile("dsb sy" ::: "memory");
-+	sweet_early_string("SWEET EARLY ");
++	sweet_early_string("FUXI EARLY ");
 +	sweet_early_putc((char)('0' + stage));
 +	sweet_early_string(": ");
 +	sweet_early_string(label);
@@ -259,7 +259,7 @@ index 0000000..8f4c808
 +		return;
 +	}
 +	early_panicking = 1;
-+	sweet_early_string("\nSWEET EARLY PANIC: ");
++	sweet_early_string("\nFUXI EARLY PANIC: ");
 +	va_list copy;
 +	va_copy(copy, *args);
 +	_doprnt(fmt, &copy, sweet_early_putc, 16);

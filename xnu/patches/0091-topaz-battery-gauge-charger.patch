@@ -204,7 +204,7 @@ index 0000000..08cdc34
 +	/* OR our votes in: other bits of the shared register belong to others */
 +	wr(i2c1_gcc, I2C1_GCC_VOTE, rd(i2c1_gcc, I2C1_GCC_VOTE) | 0xbc0u);
 +	if (!wait_clear(i2c1_gcc, I2C1_CBCR, 1u << 31)) {
-+		printf("SWEET I2C1: SE1 clock off (cbcr %#x)\n", rd(i2c1_gcc, I2C1_CBCR));
++		printf("FUXI I2C1: SE1 clock off (cbcr %#x)\n", rd(i2c1_gcc, I2C1_CBCR));
 +		return EIO;
 +	}
 +	/* GPIO4/5: function 1 (qup1), 2 mA, no pull (TopazBattery CTL 0x4) */
@@ -213,7 +213,7 @@ index 0000000..08cdc34
 +
 +	uint32_t fw = rd(i2c1_se, SE_FW), rxp = rd(i2c1_se, SE_HW_RX);
 +	if (((fw >> 8) & 0xffu) != 3u || (rd(i2c1_se, SE_STATUS) & 0x1001u)) {
-+		printf("SWEET I2C1: SE1 not an idle I2C engine (fw %#x status %#x)\n",
++		printf("FUXI I2C1: SE1 not an idle I2C engine (fw %#x status %#x)\n",
 +		    fw, rd(i2c1_se, SE_STATUS));
 +		return EIO;
 +	}
@@ -240,7 +240,7 @@ index 0000000..08cdc34
 +	wr(i2c1_se, 0x814, ((rxp >> 16) & 0x3fu) - 1u);
 +	wr(i2c1_se, SE_IRQ_EN, SE_DONE | SE_ERRORS | (3u << 26) | SE_TX_WM_IRQ);
 +	i2c1_ready = true;
-+	printf("SWEET I2C1: SE1 ready (fw %#x vote %#x)\n", fw, rd(i2c1_gcc, I2C1_GCC_VOTE));
++	printf("FUXI I2C1: SE1 ready (fw %#x vote %#x)\n", fw, rd(i2c1_gcc, I2C1_GCC_VOTE));
 +	return 0;
 +}
 +#endif /* ARM64_BOARD_CONFIG_SWEET */
@@ -313,7 +313,7 @@ index 9969739..809857b 100644
 +	publish(done ? 100 : percent, mv, ma, external, external, charging, done, true, true);
 +	static unsigned logs;
 +	if (logs++ % 20 == 0) {
-+		IOLog("SWEET BATTERY: topaz %u%% %umV %dmA full=%umAh chg=%#x external=%d charging=%d\n",
++		IOLog("FUXI BATTERY: fuxi %u%% %umV %dmA full=%umAh chg=%#x external=%d charging=%d\n",
 +		    percent, mv, ma, fullMah, st, external, charging);
 +	}
 +	return true;

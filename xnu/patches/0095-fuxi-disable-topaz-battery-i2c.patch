@@ -24,5 +24,5 @@
  	wr(i2c1_gcc, I2C1_GCC_VOTE, rd(i2c1_gcc, I2C1_GCC_VOTE) | 0xbc0u);
 +#endif
  	if (!wait_clear(i2c1_gcc, I2C1_CBCR, 1u << 31)) {
- 		printf("SWEET I2C1: SE1 clock off (cbcr %#x)\n", rd(i2c1_gcc, I2C1_CBCR));
+ 		printf("FUXI I2C1: SE1 clock off (cbcr %#x)\n", rd(i2c1_gcc, I2C1_CBCR));
  		return EIO;

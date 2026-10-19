@@ -34,15 +34,15 @@ index a148608..65970f9 100644
 +	bool mok = keys_read(keys_gpio_apid, 0xc440, &mode);
 +	bool eok = keys_read(keys_gpio_apid, 0xc446, &en);
 +	bool sok = keys_read(keys_gpio_apid, 0xc405, &subtype);
- 	printf("SWEET KEYS: arb=%#x apids=%u pon-apid=%u gpio4-apid=%u pon=%#x/%d gpio=%#x/%d mode=%#x/%d en=%#x/%d subtype=%#x/%d\n",
+ 	printf("FUXI KEYS: arb=%#x apids=%u pon-apid=%u gpio4-apid=%u pon=%#x/%d gpio=%#x/%d mode=%#x/%d en=%#x/%d subtype=%#x/%d\n",
  	    keys_version, count, keys_pon_apid, keys_gpio_apid,
  	    pon, pok, gpio, gok, mode, mok, en, eok, subtype, sok);
 @@ -166,7 +167,7 @@ sweet_keys_init(void)
  	unsigned dir = subtype >= 0x10u && subtype <= 0x13u ?
  	    mode & 3u : (mode >> 4) & 7u;
  	if (!eok || !mok || !sok || !(en & 0x80u) || (dir != 0 && dir != 2)) {
--		printf("SWEET KEYS: GPIO2 not confirmed enabled as input; volume-up withheld, PMIC unchanged\n");
-+		printf("SWEET KEYS: GPIO5 not confirmed enabled as input; volume-up withheld, PMIC unchanged\n");
+-		printf("FUXI KEYS: GPIO2 not confirmed enabled as input; volume-up withheld, PMIC unchanged\n");
++		printf("FUXI KEYS: GPIO5 not confirmed enabled as input; volume-up withheld, PMIC unchanged\n");
  		keys_gpio_apid = KEYS_NO_APID;
  	}
  	if (!pok && !gok) {
@@ -88,7 +88,7 @@ index 61f7769..a9b928b 100644
 +	}
  	if (!done || !touch_wait_clear(st.se, SE_STATUS, 1u)) {
  		st.dead = true;
- 		printf("SWEET TOUCH: abort failed status=%#x irq=%#x; stopping\n",
+ 		printf("FUXI TOUCH: abort failed status=%#x irq=%#x; stopping\n",
 @@ -240,8 +251,11 @@ touch_msg_run(uint8_t addr, const uint8_t *tx, unsigned nt, uint8_t *rx,
  	touch_wr(st.se, nr ? SE_RX_LEN : SE_TX_LEN, nr ? nr : nt);
  	touch_wr(st.se, SE_CMD, ((nr ? 2u : 1u) << 27) |
@@ -144,8 +144,8 @@ index af6e35c..b7be070 100644
 -		sweet_keys_init();
  		sweet_usb_probe();
  	} else {
--		printf("SWEET UFS: keys/USB skipped (topaz, sweethw=0)\n");
-+		printf("SWEET UFS: USB skipped (topaz, sweethw=0)\n");
+-		printf("FUXI UFS: keys/USB skipped (fuxi, sweethw=0)\n");
++		printf("FUXI UFS: USB skipped (fuxi, sweethw=0)\n");
  	}
  	return 0;
  }

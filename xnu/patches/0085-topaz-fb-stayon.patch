@@ -12,7 +12,7 @@ index a62416c..2094443 100644
 +			 */
 +			int stayon = 0;
 +			if (off && PE_parse_boot_argn("sweetfb_stayon", &stayon, sizeof(stayon)) && stayon) {
-+				IOLog("SWEET FB: display off ignored (sweetfb_stayon)\n");
++				IOLog("FUXI FB: display off ignored (sweetfb_stayon)\n");
 +				break;
 +			}
  			IOLockLock(fFB->fLock);

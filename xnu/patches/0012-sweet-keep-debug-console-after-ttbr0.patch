@@ -123,7 +123,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
  		}
  	}
  	__asm__ volatile("dsb sy" ::: "memory");
- 	sweet_early_string("SWEET EARLY ");
+ 	sweet_early_string("FUXI EARLY ");
 -	sweet_early_putc((char)('0' + stage));
 +	if (stage >= 10) {
 +		sweet_early_putc((char)('0' + stage / 10));
