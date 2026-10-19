@@ -1,0 +1,26 @@
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -147,10 +147,20 @@
+ 	/*
+ 	 * topaz: the ADT lists only the A73 (gold) cores and the shim boots xnu
+ 	 * on gold CPU 0x100 (the silver cluster has no 16K granule).
++	 * fuxi: every core has the 16K granule, so the shim performs no
++	 * silver->gold hand-off (shim.c gates it on id_aa64mmfr0_el1 TGran16) and
++	 * xnu boots on the natural boot core, MPIDR Aff1=0 -- which is what the
++	 * ADT lists for cpu0.  Patch 0082 changed this expectation to 0x100 for
++	 * topaz; fuxi needs the original 0065 value back.
+ 	 */
+-	if (topology->boot_cpu->cpu_id != 0 || topology->boot_cpu->phys_id != 0x100) {
+-		panic("SWEET CPU: expected boot MPIDR 0x100 and logical CPU 0, got 0x%x/%u",
+-		    topology->boot_cpu->phys_id, topology->boot_cpu->cpu_id);
++#ifdef ARM64_BOARD_CONFIG_FUXI
++	const uint32_t boot_mpidr = 0x0;
++#else
++	const uint32_t boot_mpidr = 0x100;
++#endif
++	if (topology->boot_cpu->cpu_id != 0 || topology->boot_cpu->phys_id != boot_mpidr) {
++		panic("SWEET CPU: expected boot MPIDR 0x%x and logical CPU 0, got 0x%x/%u",
++		    boot_mpidr, topology->boot_cpu->phys_id, topology->boot_cpu->cpu_id);
+ 	}
+ 	for (unsigned int i = 0; i < topology->num_cpus; i++) {
+ 		SweetCPU *cpu = __atomic_load_n(&sweet_cpus[i], __ATOMIC_ACQUIRE);
