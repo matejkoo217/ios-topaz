@@ -93,7 +93,7 @@ Harness: applied=113 skipped=0.
 +				scale = scale * 10u + (uint32_t)(*q - '0');
 +			}
 +		}
-+		if (fuxi_fb_capture(so, scale) != 0) {
++		if (fuxi_fb_capture(NULL, scale) != 0) {
 +			ud_cmd_send("fb: no framebuffer\n", 18);
 +		} else {
 +			ud_cmd_send("fb: sent\n", 9);
@@ -101,7 +101,7 @@ Harness: applied=113 skipped=0.
  	} else if (len == 3 && strncmp(line, "cpu", 3) == 0) {
  		uint32_t khz = fuxi_cpu_khz();
  		/* Cluster clocks go to the console stream (readable on 5140). */
-@@ -952,6 +968,145 @@
+@@ -952,6 +968,164 @@
  	(void)sock_send(so, &msg, 0, &sent);
  }
  
@@ -198,9 +198,23 @@ Harness: applied=113 skipped=0.
 +	struct fuxi_fb_hdr h;
 +	uint8_t *payload = fuxi_fb_pkt + sizeof(h);
 +	uint32_t ow, oh, chunks, chunk = 0, used = 0;
++	socket_t own = NULL;
++	int ret = -1;
 +
++	/*
++	 * Called from the ethertype dispatcher, which has no socket (it sends
++	 * frames through the ifnet).  A datagram socket is cheap and sending does
++	 * not need a bind, so open one for the duration of the grab.
++	 */
++	if (so == NULL) {
++		if (sock_socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP, NULL, NULL, &own) != 0) {
++			printf("FUXI FB: socket failed\n");
++			return -1;
++		}
++		so = own;
++	}
 +	if (!fuxi_fb_map()) {
-+		return -1;
++		goto out;
 +	}
 +	if (scale == 0) {
 +		scale = FUXI_FB_SCALE;
@@ -208,7 +222,7 @@ Harness: applied=113 skipped=0.
 +	ow = fuxi_fb_w / scale;
 +	oh = fuxi_fb_h / scale;
 +	if (ow == 0 || oh == 0) {
-+		return -1;
++		goto out;
 +	}
 +	chunks = (ow * oh * 3u + FUXI_FB_CHUNK - 1) / FUXI_FB_CHUNK;
 +
@@ -241,7 +255,12 @@ Harness: applied=113 skipped=0.
 +	}
 +	printf("FUXI FB: frame %u %ux%u scale %u in %u chunks\n", h.frame, ow, oh,
 +	    scale, chunk);
-+	return 0;
++	ret = 0;
++out:
++	if (own != NULL) {
++		sock_close(own);
++	}
++	return ret;
 +}
 +
  static void
