@@ -14,32 +14,34 @@ queue:
   * each slot owns its own UTRD, UCD (128-byte aligned) and 1 MiB bounce buffer
   * one contiguous DMA allocation; the host is not cache coherent, so each slot
     cleans/invalidates only its own ranges
-  * only the slot's own doorbell bit is rung, and only that bit is polled, so
-    commands from different threads are genuinely concurrent
+  * only the slot's own doorbell bit is rung, and only that bit is polled
   * the global lock now covers only slot allocation and rare state changes
-  * REG_IS is cleared only when the whole doorbell is idle, so one slot cannot
-    stomp another's status
+  * REG_IS is cleared only when the whole doorbell is idle
 
-DMA layout is verified to fit: 8 UTRDs end at 0x100, 8 UCDs at 0x3400, bounce
-area starts at 0x4000, total 8.02 MiB.
+DMA layout verified to fit: 8 UTRDs end at 0x100, 8 UCDs at 0x3400, bounce area
+starts at 0x4000, 8.02 MiB total.
 
-Two corrections applied on top of the proposed code:
+Corrections applied on top of the proposed code:
+- GPT write-fence was 'lba + count - 1 >= gpt_alt - 4'.  With the backup GPT at
+  61850619 that begins at 61850615, but userdata runs to 61850618 and the
+  persistent log ring occupies its final 4 MiB -> every flush would be refused
+  and the log thread would stop.  The margin is unnecessary because
+  ufs_write_blocks_slot already rejects anything outside the partition bounds
+  before this check.  Fence now compares against gpt_alt itself.
+- the proposed file carried the original 50/200us command wait, which would have
+  undone 0100.  The file carries 5/20us in both sides of this diff, so 0100 and
+  0101 do not fight over the same lines.
 
-1. The GPT write-fence was 'lba + count - 1 >= gpt_alt - 4'.  With the backup
-   GPT at LBA 61850619 that fence begins at 61850615, but userdata runs to
-   61850618 and the persistent log ring occupies its final 4 MiB (61849594..
-   61850618) -- so every ring flush would have been refused and the log thread
-   would stop.  The '- 4' margin is unnecessary: ufs_write_blocks_slot already
-   rejects anything outside the partition bounds before this check, so it cannot
-   reach the backup GPT regardless.  Fence now compares against gpt_alt itself.
+THIS PATCH IS A FULL-FILE REPLACEMENT relative to the post-0100 file: its hunks
+are generated against 0100-applied content, so it must be applied AFTER 0100.
+Guards against the failure mode that hid the previous attempt: the build treats
+an unappliable patch as a warning and carries on, so 'CI success' alone does not
+prove this applied -- check the kernel strings for 'slots (MT)' and 'on slot %u'
+as the real gate, and check the CI log for 'Skipping patch ... 0101'.
 
-2. The proposed file carried the original 50us/200us command wait, undoing 0100;
-   those constants are re-applied here (5us/20us).
-
-Deferred: interrupts.  This is still polled (REG_IE=0) and still bounds the
-partition by polling each slot's own doorbell bit, but latencies now overlap
-across slots instead of stacking.  REG_IE plus a completion path would remove the
-polling entirely and is the next step.
+Deferred: interrupts.  Still polled (REG_IE=0) and each slot polls only its own
+doorbell bit, so latencies now overlap instead of stacking, but completion is
+still detected by polling.  REG_IE plus a completion path is the next step.
 --- a/bsd/dev/sweet_ufs.c
 +++ b/bsd/dev/sweet_ufs.c
 @@ -1,18 +1,19 @@
@@ -89,7 +91,7 @@ polling entirely and is the next step.
  static void sweet_log_start(void);
  extern void sweet_sample_start(void);
  extern void sweet_keys_init(void);
-@@ -67,21 +67,30 @@
+@@ -67,33 +67,24 @@
  
  #define HCS_DP          (1u << 0)
  #define HCS_UTRLRDY     (1u << 1)
@@ -102,20 +104,24 @@ polling entirely and is the next step.
 +#define PRDT_CHUNK      (256u << 10)
  #define PRDT_MAX        (BOUNCE_SIZE / PRDT_CHUNK)
  #define CMD_TIMEOUT_NS  (5ull * NSEC_PER_SEC)
--#define CMD_SPIN_NS     (50ull * NSEC_PER_USEC)
--#define CMD_SLEEP_NS    (200ull * NSEC_PER_USEC)
-+/*
-+ * Per-command wait budget (see 0100).  UFS answers a small read in tens of
-+ * microseconds, so the original 200us sleep dominated: a cold boot reads the
-+ * 3.3 GB dyld cache in 4 KiB blocks (~800k commands) = ~160 s of pure sleep.
-+ * With 8 slots the latency overlaps, but there is no reason to keep paying it.
-+ */
-+#define CMD_SPIN_NS     (5ull * NSEC_PER_USEC)
-+#define CMD_SLEEP_NS    (20ull * NSEC_PER_USEC)
-+
+-/*
+- * Per-command wait budget.  These were sized for a first bring-up where a slow
+- * answer was the main risk; in practice UFS completes a small read in tens of
+- * microseconds, so 200us of sleep per command dominated everything.  Loading
+- * the 3.3 GB dyld shared cache at 4 KiB per command is ~800k commands, i.e.
+- * ~160 s of *pure sleep* before any transfer time -- which is most of the
+- * multi-minute boot.
+- *
+- * Spin for a short window first (a doorbell completion is usually immediate and
+- * the poll is just a cached MMIO read), then sleep briefly instead of for 200us.
+- * CMD_TIMEOUT_NS still bounds a genuinely stuck command.
+- */
+ #define CMD_SPIN_NS     (5ull * NSEC_PER_USEC)
+ #define CMD_SLEEP_NS    (20ull * NSEC_PER_USEC)
+ 
 +/* Parallelism: 8 slots for 8 cores. */
 +#define UFS_MT_DEPTH    8
- 
++
  struct utrd {
  	uint32_t dw0, dw1, dw2, dw3;
  	uint32_t ucdba, ucdbau;
@@ -126,7 +132,7 @@ polling entirely and is the next step.
  };
  
  struct ucd {
-@@ -92,29 +101,42 @@
+@@ -104,29 +95,42 @@
  	} prdt[PRDT_MAX];
  };
  
@@ -185,7 +191,7 @@ polling entirely and is the next step.
  static LCK_MTX_DECLARE(sweet_ufs_lock, &sweet_ufs_grp);
  
  static inline uint32_t
-@@ -141,34 +163,102 @@
+@@ -153,34 +157,102 @@
  	clean_dcache64((addr64_t)(su.dma_pa + off), len, TRUE);
  }
  
@@ -299,7 +305,7 @@ polling entirely and is the next step.
  	utrd->ucdba = (uint32_t)ucd_pa;
  	utrd->ucdbau = (uint32_t)(ucd_pa >> 32);
  	utrd->resp = (512u / 4) << 16 | (512u / 4);
-@@ -184,27 +274,29 @@
+@@ -196,27 +268,29 @@
  	}
  
  	if (su.cache) {
@@ -338,7 +344,7 @@ polling entirely and is the next step.
  	uint64_t deadline;
  	nanoseconds_to_absolutetime(CMD_TIMEOUT_NS, &deadline);
  	deadline += mach_absolute_time();
-@@ -216,18 +308,24 @@
+@@ -228,18 +302,24 @@
  		spin_until += mach_absolute_time();
  		nanoseconds_to_absolutetime(CMD_SLEEP_NS, &sleep_interval);
  	}
@@ -369,7 +375,7 @@ polling entirely and is the next step.
  				thread_block(THREAD_CONTINUE_NULL);
  			}
  		} else {
-@@ -235,30 +333,49 @@
+@@ -247,30 +327,49 @@
  		}
  	}
  	__builtin_arm_dsb(0xf);
@@ -428,7 +434,7 @@ polling entirely and is the next step.
  {
  	if (lba > UINT32_MAX || count > BOUNCE_SIZE / UFS_BLOCK) {
  		return EINVAL;
-@@ -268,30 +385,27 @@
+@@ -280,30 +379,27 @@
  		(uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8), (uint8_t)lba,
  		0, (uint8_t)(count >> 8), (uint8_t)count, 0
  	};
@@ -468,7 +474,7 @@ polling entirely and is the next step.
  		return EPERM;
  	}
  	uint8_t cdb[10] = {
-@@ -299,27 +413,49 @@
+@@ -311,27 +407,49 @@
  		(uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8), (uint8_t)lba,
  		0, (uint8_t)(count >> 8), (uint8_t)count, 0
  	};
@@ -525,7 +531,7 @@ polling entirely and is the next step.
  	}
  	uint64_t entry_lba;
  	uint32_t nent, esz;
-@@ -331,11 +467,13 @@
+@@ -343,11 +461,13 @@
  	memcpy(&esz, b + 84, 4);
  	if (esz != 128 || nent == 0 || nent * esz > BOUNCE_SIZE) {
  		printf("SWEET UFS: unsupported GPT entries %u x %u\n", nent, esz);
@@ -542,7 +548,7 @@ polling entirely and is the next step.
  	}
  	for (uint32_t i = 0; i < nent; i++) {
  		const uint8_t *e = b + i * esz;
-@@ -356,19 +494,25 @@
+@@ -368,19 +488,25 @@
  		memcpy(&first, e + 32, 8);
  		memcpy(&last, e + 40, 8);
  		if (last < first) {
@@ -572,7 +578,7 @@ polling entirely and is the next step.
  }
  
  static int
-@@ -383,21 +527,20 @@
+@@ -395,21 +521,20 @@
  		printf("SWEET UFS: requests outstanding from the bootloader\n");
  		return EBUSY;
  	}
@@ -598,7 +604,7 @@ polling entirely and is the next step.
  	    !(ufs_rd(REG_UTRLRSR) & 1)) {
  		printf("SWEET UFS: host did not take our request list\n");
  		return EIO;
-@@ -406,7 +549,8 @@
+@@ -418,7 +543,8 @@
  }
  
  static int
@@ -608,7 +614,7 @@ polling entirely and is the next step.
  {
  	if (!su.ready) {
  		return ENXIO;
-@@ -415,7 +559,8 @@
+@@ -427,7 +553,8 @@
  }
  
  static int
@@ -618,7 +624,7 @@ polling entirely and is the next step.
  {
  	return 0;
  }
-@@ -428,7 +573,6 @@
+@@ -440,7 +567,6 @@
  	uint64_t off = (uint64_t)buf_blkno(bp) * su.secsize;
  	uint32_t count = buf_count(bp);
  	uint64_t part_bytes = su.nblocks * UFS_BLOCK;
@@ -626,7 +632,7 @@ polling entirely and is the next step.
  	bool rd = buf_flags(bp) & B_READ;
  
  	buf_setresid(bp, count);
-@@ -448,27 +592,34 @@
+@@ -460,27 +586,34 @@
  		goto done;
  	}
  
@@ -667,7 +673,7 @@ polling entirely and is the next step.
  			}
  		}
  		if (error) {
-@@ -477,7 +628,7 @@
+@@ -489,7 +622,7 @@
  		done += want;
  		buf_setresid(bp, count - done);
  	}
@@ -676,7 +682,7 @@ polling entirely and is the next step.
  	buf_unmap(bp);
  
  done:
-@@ -498,15 +649,19 @@
+@@ -510,15 +643,19 @@
  	case DKIOCGETBLOCKSIZE:
  		*f = su.secsize;
  		return 0;
@@ -697,7 +703,7 @@ polling entirely and is the next step.
  	case DKIOCGETPHYSICALBLOCKSIZE:
  		*f = UFS_BLOCK;
  		return 0;
-@@ -517,15 +672,11 @@
+@@ -529,15 +666,11 @@
  		*f = su.writable;
  		return 0;
  	case DKIOCSYNCHRONIZE:
@@ -715,7 +721,7 @@ polling entirely and is the next step.
  	case DKIOCGETMAXBLOCKCOUNTREAD:
  		*o = BOUNCE_SIZE / su.secsize;
  		return 0;
-@@ -562,7 +713,8 @@
+@@ -574,7 +707,8 @@
  static int
  sweet_ufs_read(dev_t dev, struct uio *uio, __unused int ioflag)
  {
@@ -725,7 +731,7 @@ polling entirely and is the next step.
  }
  
  static int
-@@ -571,7 +723,8 @@
+@@ -583,7 +717,8 @@
  	if (!su.writable) {
  		return EROFS;
  	}
@@ -735,7 +741,7 @@ polling entirely and is the next step.
  }
  
  static const struct bdevsw sweet_ufs_bdevsw = {
-@@ -604,8 +757,11 @@
+@@ -616,8 +751,11 @@
  static void
  sweet_gpt_watch(__unused void *arg, __unused wait_result_t wr)
  {
@@ -748,7 +754,7 @@ polling entirely and is the next step.
  	for (;;) {
  		uint64_t deadline;
  		clock_interval_to_deadline(10, NSEC_PER_SEC, &deadline);
-@@ -614,23 +770,25 @@
+@@ -626,23 +764,25 @@
  
  		uint32_t h = 0, e = 0, bh = 0;
  		bool ok;
@@ -781,7 +787,7 @@ polling entirely and is the next step.
  		}
  	}
  }
-@@ -662,7 +820,7 @@
+@@ -674,7 +814,7 @@
  	su.regs = ml_io_map(reg[0], reg[1]);
  	if (kmem_alloc_contig(kernel_map, &su.dma, DMA_SIZE, PAGE_MASK, 0, 0,
  	    KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
@@ -790,7 +796,7 @@ polling entirely and is the next step.
  		return ENOMEM;
  	}
  	ppnum_t pn = pmap_find_phys(kernel_pmap, (addr64_t)su.dma);
-@@ -673,18 +831,23 @@
+@@ -685,18 +825,23 @@
  	su.lun = 0;
  	su.secsize = DEV_BSIZE;
  
@@ -817,7 +823,7 @@ polling entirely and is the next step.
  	if (error) {
  		return error;
  	}
-@@ -698,26 +861,25 @@
+@@ -710,26 +855,25 @@
  		return ENXIO;
  	}
  	su.bdev = makedev(su.bmajor, 0);
@@ -854,7 +860,7 @@ polling entirely and is the next step.
  	int hw = 0;
  	(void)PE_parse_boot_argn("sweethw", &hw, sizeof(hw));
  	sweet_touch_init();
-@@ -731,13 +893,9 @@
+@@ -743,13 +887,9 @@
  }
  
  /*
@@ -871,7 +877,7 @@ polling entirely and is the next step.
   *   "SWEETLOG" | u32 version 1 | u32 ring size | u64 total bytes written
   *   | u64 flush sequence
   * ring offset of byte n = n % ring size. Read it from a recovery with
-@@ -752,7 +910,6 @@
+@@ -764,7 +904,6 @@
  static int sweet_log_chan;
  static uint32_t sweet_log_secs = SWEET_LOG_SECS;
  
@@ -879,7 +885,7 @@ polling entirely and is the next step.
  void sweet_log_append(const char *c, int size);
  
  void
-@@ -767,11 +924,6 @@
+@@ -779,11 +918,6 @@
  	}
  }
  
@@ -891,7 +897,7 @@ polling entirely and is the next step.
  uint32_t sweet_log_copy(uint64_t *pos, char *out, uint32_t max);
  
  uint32_t
-@@ -808,45 +960,52 @@
+@@ -820,45 +954,52 @@
  {
  	uint64_t base = su.first_block + su.nblocks - SWEET_LOG_BLOCKS;
  	uint64_t flushed = 0, seq = 0;
