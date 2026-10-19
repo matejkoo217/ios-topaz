@@ -67,7 +67,7 @@ static void zero64(uintptr_t dst, uint64_t n)
 
 static int magic_ok(const char *m)
 {
-	static const char want[] = "SWEETXNU";
+	static const char want[] = "FUXI-XNU";
 	for (int i = 0; i < 8; i++)
 		if (m[i] != want[i])
 			return 0;
@@ -114,7 +114,7 @@ const char *loader_boot(uintptr_t dtb)
 			break;
 		}
 	if (!hit)
-		return "no SWEETXNU payload";
+		return "no FUXI-XNU payload";
 	if (hit != rd_start) {
 		uintptr_t dst = (rd_start + 7) & ~7UL;
 		volatile uint8_t *d = (volatile uint8_t *)dst;

@@ -173,7 +173,7 @@ size: 16613504
 ```
 
 - **File size**: 16,613,504 bytes (15.84 MiB)
-- **Magic**: `b'SWEETXNU'` (verified at offset `0x000`)
+- **Magic**: `b'FUXI-XNU'` (verified at offset `0x000`)
 - **Version**: `1`
 - **Segment count**: `10`
 - **Virtual base**: `0xfffffe0006000000`
@@ -229,7 +229,7 @@ Generated:
 | Artifact Path | Description | Checksum / Evidence URI |
 |---|---|---|
 | `xnu/out/fuxi.adt` | Serialized fuxi Apple Device Tree (11,220 bytes) | `sha256: 1dbf3ab795585c5e7f13089389a18d1dadd2e656a7eeb6940b760a2a740c1155` |
-| `xnu/out/fuxi.payload` | SWEETXNU payload with kernel + ADT + boot_args (16,613,504 bytes) | `sha256: 0dc991ce3615ce29a8f39af0291ca29709290c0909655bcff60f9e75fa249380` |
+| `xnu/out/fuxi.payload` | FUXI-XNU payload with kernel + ADT + boot_args (16,613,504 bytes) | `sha256: 0dc991ce3615ce29a8f39af0291ca29709290c0909655bcff60f9e75fa249380` |
 | `shim/out/shim-boot.img` | Android boot image v4 containing shim + payload (16,809,984 bytes) | `sha256: c43d7a2165f5b0f2261de07785cf5ecca637f9afd72a28d6135079696cd9be11` |
 | `/mnt/hdd/Bomb/macos-vm/evidence/adt-dump.txt` | Human-readable ADT dump rendered by `mkadt.py --dump` | Captured |
 | `/mnt/hdd/Bomb/macos-vm/evidence/adt-verify.txt` | Output of `tools/verify_fuxi_adt.py` (56 passed assertions) | Captured |

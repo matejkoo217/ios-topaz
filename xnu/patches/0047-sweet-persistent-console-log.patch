@@ -32,7 +32,7 @@
 + * and writable a thread copies new ring blocks to the LAST 4 MiB + 4 KiB of
 + * the partition about once a second (far behind the HFS image at its
 + * start). Device block 0 of that area is a header:
-+ *   "SWEETLOG" | u32 version 1 | u32 ring size | u64 total bytes written
++ *   "FUXI-LOG" | u32 version 1 | u32 ring size | u64 total bytes written
 + *   | u64 flush sequence
 + * ring offset of byte n = n % ring size. Read it from a recovery with
 + * tools/sweet-log-pull.sh. Disabled with boot-arg sweetlog=0.
@@ -96,7 +96,7 @@
 +		}
 +		if (!error) {
 +			struct fuxi_log_header h = {
-+				.magic = { 'S', 'W', 'E', 'E', 'T', 'L', 'O', 'G' },
++				.magic = { 'F', 'U', 'X', 'I', '-', 'L', 'O', 'G' },
 +				.version = 1, .size = FUXI_LOG_SIZE, .total = total, .seq = ++seq,
 +			};
 +			bzero(bounce, UFS_BLOCK);

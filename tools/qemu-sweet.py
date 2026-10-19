@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Boot a SWEETXNU payload (tools/mkpayload.py) in QEMU's virt board.
+"""Boot a FUXI-XNU payload (tools/mkpayload.py) in QEMU's virt board.
 
   qemu-sweet.py PAYLOAD OUTDIR [--secs N] [--gdb]
 
@@ -32,7 +32,7 @@ BOOT_LINE_LENGTH = 608
 def build_image(payload):
     """Return (phys_base, ram_image, boot_args_pa, entry_pa)."""
     magic, ver, nsegs = struct.unpack_from('<8sII', payload, 0)
-    assert magic == b'SWEETXNU' and ver == 1, 'not a SWEETXNU v1 payload'
+    assert magic == b'FUXI-XNU' and ver == 1, 'not a FUXI-XNU v1 payload'
     virt_base, entry_va, adt_off, adt_size, kernel_end, phys_base, mem_size = \
         struct.unpack_from('<7Q', payload, 0x10)
     cmdline = payload[0x48:0x48 + BOOT_LINE_LENGTH]
