@@ -1,0 +1,213 @@
+fuxi: 0107 -- flush the console ring from panic(); make the USB probe say where it dies
+
+Two blind spots, one patch.
+
+1. Panics left no log at all.  The ring on userdata is written by a kernel thread
+   every ufslogsecs; a panic halts every other thread and CPU, so the ring keeps
+   whatever the *previous* boot flushed.  The sweethw=1 abort is a case in point:
+   it kills the boot in the same second the log starts, ufslogsecs=1 included, so
+   the ring still read 181267 bytes from the boot before it.  panic() now calls
+   fuxi_log_flush_panic(), which writes the last 16 KiB of the ring through a
+   slot reserved at log start and stamps the header seq 0xffffffff so a reader can
+   tell a panic flush from a periodic one.
+
+2. fuxi_usb_probe() died before its first print.  It now says each step
+   ("probe start", "mapping DWC3", "mapping QUSB2 PHY", "reading GCC ...") so the
+   ring names the access that faults, and the GCC clock/GDSC probe is behind
+   sweetusbgcc (default 0) instead of being unconditional.
+
+   Why the GCC probe is off by default: those CBCR/GDSC offsets are copied from
+   gcc-sdmmagpie.c, which is SM7150, not SM8550.  An offset the SoC does not
+   implement answers with an AXI decode error, and that is a *synchronous
+   external abort* -- exactly the esr 0x96000010 in the panic.  ABL has just run
+   this controller for fastboot, so its clocks are already up; going straight to
+   DWC3 is both the safer and the intended state.  sweetusbgcc=1 restores the old
+   probing for anyone who wants the register values printed.
+
+Harness: applied=106 skipped=0.
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
+@@ -1092,7 +1092,10 @@
+ #define FUXI_LOG_BLOCKS        (1 + FUXI_LOG_SIZE / UFS_BLOCK)
+ #define FUXI_LOG_SECS          10u
+ 
++#define FUXI_LOG_PANIC_BYTES    (4 * UFS_BLOCK)  /* 16 KiB is ~200 console lines */
++
+ static char fuxi_log_ring[FUXI_LOG_SIZE];
++static struct ufs_slot *fuxi_log_panic_slot;
+ static uint64_t _Atomic fuxi_log_total;
+ static int fuxi_log_chan;
+ static uint32_t fuxi_log_secs = FUXI_LOG_SECS;
+@@ -1142,6 +1145,58 @@
+ 	uint64_t total, seq;
+ };
+ 
++/*
++ * Flush the ring from the panic path.  A panic halts every other CPU and every
++ * other thread, so the 10 s log thread never runs again and the ring on
++ * userdata keeps whatever the *previous* boot left -- which is why an early
++ * panic currently leaves no trace at all.  This writes the tail synchronously
++ * with a slot reserved for it, and marks the header seq 0xffffffff so a reader
++ * can tell a panic flush from a periodic one.  Best effort: if the controller is
++ * wedged, the panic is lost anyway.
++ */
++void fuxi_log_flush_panic(void);
++
++void
++fuxi_log_flush_panic(void)
++{
++	static bool already;
++	uint64_t total, base, off, start;
++	uint32_t blk, n;
++	struct fuxi_log_header h;
++
++	if (already || !su.ready || !su.writable || fuxi_log_panic_slot == NULL) {
++		return;
++	}
++	already = true;
++	total = os_atomic_load(&fuxi_log_total, relaxed);
++	if (total == 0) {
++		return;
++	}
++	base = su.first_block + su.nblocks - FUXI_LOG_BLOCKS;
++	start = total > FUXI_LOG_PANIC_BYTES ? total - FUXI_LOG_PANIC_BYTES : 0;
++	off = start % FUXI_LOG_SIZE;
++	blk = (uint32_t)(off / UFS_BLOCK);
++	n = (uint32_t)MIN((uint64_t)(FUXI_LOG_PANIC_BYTES / UFS_BLOCK),
++	    (uint64_t)(FUXI_LOG_SIZE / UFS_BLOCK - blk));
++	memcpy(slot_bounce(fuxi_log_panic_slot),
++	    fuxi_log_ring + (uint64_t)blk * UFS_BLOCK, (size_t)n * UFS_BLOCK);
++	if (ufs_write_blocks_slot(fuxi_log_panic_slot, base + 1 + blk, n) != 0) {
++		return;
++	}
++	h.magic[0] = 'F'; h.magic[1] = 'U'; h.magic[2] = 'X'; h.magic[3] = 'I';
++	h.magic[4] = '-'; h.magic[5] = 'L'; h.magic[6] = 'O'; h.magic[7] = 'G';
++	h.version = 1;
++	h.size = FUXI_LOG_SIZE;
++	h.total = total;
++	h.seq = 0xffffffffull;
++	bzero(slot_bounce(fuxi_log_panic_slot), UFS_BLOCK);
++	memcpy(slot_bounce(fuxi_log_panic_slot), &h, sizeof(h));
++	if (ufs_write_blocks_slot(fuxi_log_panic_slot, base, 1) != 0) {
++		return;
++	}
++	(void)ufs_sync_cache_slot(fuxi_log_panic_slot);
++}
++
+ static void
+ fuxi_log_thread(__unused void *arg, __unused wait_result_t wr)
+ {
+@@ -1213,6 +1268,7 @@
+ 	if (fuxi_log_secs == 0 || fuxi_log_secs > 60) {
+ 		fuxi_log_secs = FUXI_LOG_SECS;
+ 	}
++	fuxi_log_panic_slot = ufs_alloc_slot();        /* reserved for the panic path */
+ 	if (kernel_thread_start(fuxi_log_thread, NULL, &thread) == KERN_SUCCESS) {
+ 		thread_deallocate(thread);
+ 	}
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -78,32 +78,51 @@
+ fuxi_usb_probe(void)
+ {
+ 	int enabled = 1;
+-	uint32_t gdscr, cbcr[sizeof(usb_cbcr) / sizeof(usb_cbcr[0])];
++	uint32_t gdscr, cbcr[sizeof(usb_cbcr) / sizeof(usb_cbcr[0])] = {0};
+ 	bool clocks_on = true;
+ 
++	int gccprobe = 0;
++
+ 	/* sweetusb=0 off, 1 (default) report state only, 2 also start the USB device */
+ 	PE_parse_boot_argn("sweetusb", &enabled, sizeof(enabled));
+-	if (!enabled) {
+-		return;
+-	}
+-	vm_offset_t gcc = ml_io_map(GCC_PA, GCC_SIZE);
+-	if (gcc == 0) {
+-		printf("FUXI USB: GCC map failed\n");
+-		return;
+-	}
+-	gdscr = usb_rd(gcc, GCC_USB30_PRIM_GDSCR);
+-	printf("FUXI USB: GDSC usb30_prim 0x%08x (%s)\n", gdscr, (gdscr & (1u << 31)) ? "on" : "off");
+-	for (unsigned i = 0; i < sizeof(usb_cbcr) / sizeof(usb_cbcr[0]); i++) {
+-		cbcr[i] = usb_rd(gcc, usb_cbcr[i].off);
+-		printf("FUXI USB: clk %-12s CBCR 0x%08x (%s)\n", usb_cbcr[i].name, cbcr[i],
+-		    (cbcr[i] & CBCR_CLK_OFF) ? "off" : "on");
+-	}
+-	/* DWC3 registers need the GDSC, the master clock and the config-NoC path. */
+-	clocks_on = (gdscr & (1u << 31)) && !(cbcr[0] & CBCR_CLK_OFF) && !(cbcr[3] & CBCR_CLK_OFF);
+-	if (!clocks_on) {
+-		printf("FUXI USB: controller unpowered or unclocked; DWC3 not read\n");
+-		return;
++	/*
++	 * sweetusbgcc=1 reads the GCC clock/GDSC status before touching DWC3.  It is
++	 * off by default because those CBCR/GDSC offsets came from gcc-sdmmagpie.c
++	 * (SM7150): an offset SM8550 does not implement answers with an AXI decode
++	 * error, i.e. a synchronous external abort, which is what killed the first
++	 * sweethw=1 boot before it could print a single FUXI USB line.  ABL has just
++	 * used this controller for fastboot, so its clocks are up; go straight there.
++	 */
++	(void)PE_parse_boot_argn("sweetusbgcc", &gccprobe, sizeof(gccprobe));
++	printf("FUXI USB: probe start (sweetusb=%d sweetusbgcc=%d)\n", enabled, gccprobe);
++	vm_offset_t gcc = 0;
++	if (gccprobe) {
++		printf("FUXI USB: reading GCC 0x%x GDSCR 0x%x\n", GCC_PA, GCC_USB30_PRIM_GDSCR);
++		gcc = ml_io_map(GCC_PA, GCC_SIZE);
++		if (gcc == 0) {
++			printf("FUXI USB: GCC map failed\n");
++			return;
++		}
++		gdscr = usb_rd(gcc, GCC_USB30_PRIM_GDSCR);
++		printf("FUXI USB: GDSC usb30_prim 0x%08x (%s)\n", gdscr,
++		    (gdscr & (1u << 31)) ? "on" : "off");
++		for (unsigned i = 0; i < sizeof(usb_cbcr) / sizeof(usb_cbcr[0]); i++) {
++			cbcr[i] = usb_rd(gcc, usb_cbcr[i].off);
++			printf("FUXI USB: clk %-12s CBCR 0x%08x (%s)\n", usb_cbcr[i].name,
++			    cbcr[i], (cbcr[i] & CBCR_CLK_OFF) ? "off" : "on");
++		}
++		/* DWC3 needs the GDSC, the master clock and the config-NoC path. */
++		clocks_on = (gdscr & (1u << 31)) && !(cbcr[0] & CBCR_CLK_OFF) &&
++		    !(cbcr[3] & CBCR_CLK_OFF);
++		if (!clocks_on) {
++			printf("FUXI USB: controller unpowered or unclocked; DWC3 not read\n");
++			return;
++		}
++	} else {
++		printf("FUXI USB: GCC probe skipped; clocks left as ABL set them\n");
+ 	}
++	(void)cbcr;
++	printf("FUXI USB: mapping DWC3 0x%x\n", DWC3_PA);
+ 	vm_offset_t dwc = ml_io_map(DWC3_PA, DWC3_SIZE);
+ 	if (dwc == 0) {
+ 		printf("FUXI USB: DWC3 map failed\n");
+@@ -120,10 +139,11 @@
+ 	if (enabled >= 2) {
+ 		fuxi_usb_gadget_start(dwc);
+ 	}
+-	if (cbcr[5] & CBCR_CLK_OFF) {
++	if (gccprobe && (cbcr[5] & CBCR_CLK_OFF)) {
+ 		printf("FUXI USB: ahb2phy clock off; QUSB2 PHY not read\n");
+ 		return;
+ 	}
++	printf("FUXI USB: mapping QUSB2 PHY 0x%x\n", QUSB2_PA);
+ 	vm_offset_t phy = ml_io_map(QUSB2_PA, QUSB2_SIZE);
+ 	if (phy == 0) {
+ 		return;
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1455,6 +1455,15 @@
+ 
+ #endif /* CONFIG_KDP_INTERACTIVE_DEBUGGING */
+ 
++	/*
++	 * The console ring on userdata is the only log a halted phone keeps, and
++	 * nothing else flushes once panic_halt stops the other threads.
++	 */
++	{
++		extern void fuxi_log_flush_panic(void);
++		fuxi_log_flush_panic();
++	}
++
+ 	if (!panicDebugging) {
+ 		kdp_machine_reboot_type(kPEPanicRestartCPU, debugger_panic_options);
+ 	}
