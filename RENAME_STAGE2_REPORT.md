@@ -14,7 +14,7 @@ next stage started.
 | D — vendored trees | `08ccd68` | 39313966886 | success |
 | E — on-media magics | `c0f2448` | 39315464694 | success |
 | F — patch/tool filenames | `1d9fa69` | 39316520748 | success |
-| G — this report + 0101 rename | *(see git log)* | *(see git log)* | success |
+| G — report + 0101 filename | `548fe97` | 39317473357 | success (kernel.development.fuxi, 17,223,312 bytes) |
 
 Workflow: `.github/workflows/xnu.yml`, dispatched with `machine_config=FUXI`
 (ref `fuxi-rename2`).
