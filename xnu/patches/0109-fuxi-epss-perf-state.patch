@@ -1,0 +1,122 @@
+fuxi: 0109 -- read the EPSS perf state, so the cores' clock stops being a guess
+
+PMCCNTR reads 0 because the PMU is trapped at EL2 (0105 reports MIDR and CNTFRQ
+but "clock unreadable"), and the shim cannot fix that from EL1.  The EPSS block
+does not need the PMU at all.
+
+sm8550.dtsi puts three freq domains at 0x17d91000 / 0x17d92000 / 0x17d93000
+("freq-domain0/1/2" = A510 x3, A715+A710 x4, X3), and
+drivers/cpufreq/qcom-cpufreq-hw.c gives the epss layout: freq LUT at 0x100 (u32
+per entry, lval in bits 7:0, xo in bits 31:30, freq_kHz = 19200 * lval), the
+requested perf state at 0x320, and the current vote in XO units at 0x20.
+
+So the report is direct: perf_state is the index, LUT[index] is the clock the
+cluster is at right now, and printing the LUT range next to it says whether that
+index is the bottom, the top, or neither.  Since nothing in this port ever writes
+perf_state, this number is exactly the OPP the bootloader left behind -- which is
+the whole "is it boosting" question, answered instead of argued.
+
+The cluster names come from the same DT: cpu0-2 cortex-a510, cpu3-4 cortex-a715,
+cpu5-6 cortex-a710, cpu7 cortex-x3, which matches the mpidr 0x000..0x700 the SMP
+bring-up prints.
+
+Harness: applied=108 skipped=0.
+--- a/bsd/dev/fuxi_sample.c
++++ b/bsd/dev/fuxi_sample.c
+@@ -24,6 +24,8 @@
+ #include <kern/task.h>
+ #include <kern/thread.h>
+ #include <pexpert/pexpert.h>
++#include <vm/pmap.h>
++#include <vm/vm_kern.h>
+ 
+ extern task_t proc_task(proc_t);
+ extern int hz;
+@@ -100,6 +102,79 @@
+ 	return (uint32_t)(((c1 - c0) * cntfrq) / ((t1 - t0) * 1000));
+ }
+ 
++/*
++ * EPSS: what OPP are the cores actually in?
++ *
++ * There is no DVFS in this port, so the answer is "whatever ABL left", but the
++ * PMU is trapped at EL2 and PMCCNTR reads 0, which leaves the clock unmeasured
++ * (0105).  The EPSS block does not need the PMU: sm8550.dtsi puts three freq
++ * domains at 0x17d91000/0x17d92000/0x17d93000 ("freq-domain0/1/2", A510, then
++ * A715+A710, then X3), and drivers/cpufreq/qcom-cpufreq-hw.c gives the layout
++ * for the epss variant: freq LUT at 0x100 (u32 per entry, 40 entries, lval in
++ * bits 7:0, xo in bits 31:30, freq_kHz = 19200 * lval), the requested perf state
++ * at 0x320, and the current vote in XO units at 0x20.
++ *
++ * So: index = perf_state, and LUT[index] is the cluster's clock right now.
++ */
++#define FUXI_EPSS_BASE      0x17d91000UL
++#define FUXI_EPSS_STRIDE    0x1000UL
++#define FUXI_EPSS_DOMAINS   3
++#define FUXI_EPSS_FREQ_LUT  0x100
++#define FUXI_EPSS_PERF_STATE 0x320
++#define FUXI_EPSS_DOMAIN_STATE 0x20
++#define FUXI_EPSS_LUT_ENTRIES 40
++#define FUXI_XO_KHZ         19200u
++
++static const char *const fuxi_epss_names[FUXI_EPSS_DOMAINS] = {
++	"A510", "A715/A710", "X3"
++};
++
++static uint32_t
++fuxi_epss_lut_khz(volatile uint32_t *base, int i)
++{
++	uint32_t v = base[(FUXI_EPSS_FREQ_LUT + i * 4) / 4];
++	uint32_t src = v >> 30;
++
++	return src ? FUXI_XO_KHZ * (v & 0xff) : 0;
++}
++
++void
++fuxi_cpu_epss_report(const char *tag)
++{
++	for (int d = 0; d < FUXI_EPSS_DOMAINS; d++) {
++		vm_offset_t va = ml_io_map(FUXI_EPSS_BASE + (uint64_t)d * FUXI_EPSS_STRIDE,
++		    0x1000);
++		if (va == 0) {
++			printf("FUXI CPU: epss domain%d map failed\n", d);
++			continue;
++		}
++		volatile uint32_t *base = (volatile uint32_t *)va;
++		uint32_t index = base[FUXI_EPSS_PERF_STATE / 4] & 0xff;
++		uint32_t vote = base[FUXI_EPSS_DOMAIN_STATE / 4] & 0x3ff;
++		uint32_t khz = 0, lo = 0, hi = 0;
++		int n = 0;
++
++		for (int i = 0; i < FUXI_EPSS_LUT_ENTRIES; i++) {
++			uint32_t f = fuxi_epss_lut_khz(base, i);
++			if (f == 0) {
++				continue;
++			}
++			if (n == 0) {
++				lo = f;
++			}
++			hi = f;
++			n++;
++			if (i == index) {
++				khz = f;
++			}
++		}
++		printf("FUXI CPU: %s epss %-9s state %u of %d = %u.%03u MHz "
++		    "(LUT %u..%u MHz, vote %u x %u kHz)\n",
++		    tag, fuxi_epss_names[d], index, n, khz / 1000, khz % 1000,
++		    lo / 1000, hi / 1000, vote, FUXI_XO_KHZ);
++	}
++}
++
+ static void
+ fuxi_cpu_report(const char *tag)
+ {
+@@ -143,6 +218,7 @@
+ 		return;
+ 	}
+ 	fuxi_cpu_report("boot");
++	fuxi_cpu_epss_report("boot");
+ 	(void)tsleep(&chan, PZERO, "fuxismp", 90 * hz);
+ 	for (int i = 0; i < 40; i++) {
+ 		printf("SMP --- sample %d cpu %u %u MHz\n", i,
