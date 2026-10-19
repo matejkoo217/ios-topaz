@@ -1,7 +1,7 @@
-diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+diff --git a/iokit/Kernel/arm/FuxiCPU.cpp b/iokit/Kernel/arm/FuxiCPU.cpp
 new file mode 100644
 --- /dev/null
-+++ b/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/FuxiCPU.cpp
 @@ -0,0 +1,171 @@
 +/*
 + * Single-CPU bring-up for sweet using XNU's legacy IOCPU interface.
@@ -196,6 +196,6 @@ diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
 @@ -8,3 +8,5 @@
  
  # SWEET device-tree platform (empty translation unit on other boards)
- iokit/Kernel/arm/SweetPlatformExpert.cpp                         optional iokitcpp
+ iokit/Kernel/arm/FuxiPlatformExpert.cpp                         optional iokitcpp
 +
-+iokit/Kernel/arm/SweetCPU.cpp                                    optional iokitcpp
++iokit/Kernel/arm/FuxiCPU.cpp                                    optional iokitcpp

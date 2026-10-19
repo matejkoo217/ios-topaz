@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_ufs.c
-+++ b/bsd/dev/sweet_ufs.c
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
 @@ -1,5 +1,5 @@
  /*
 - * SWEET internal UFS root device (read-only).

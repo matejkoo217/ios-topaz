@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
+diff --git a/bsd/dev/fuxi_touch.c b/bsd/dev/fuxi_touch.c
 index c810ee9..61f7769 100644
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/fuxi_touch.c
++++ b/bsd/dev/fuxi_touch.c
 @@ -90,6 +90,10 @@ static struct {
  	uint32_t d_vote, d_cfg, d_cbcr, d_fw, d_status, d_hwtx, d_hwrx;
  	int d_fe1, d_fe2, d_ge;

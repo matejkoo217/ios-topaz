@@ -1,12 +1,12 @@
---- a/bsd/dev/sweet_ufs.c
-+++ b/bsd/dev/sweet_ufs.c
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
 @@ -700,6 +700,36 @@
  	}
  }
  
 +/*
 + * Copy console bytes [*pos, total) (at most max) for live log streaming
-+ * (sweet_usb.c). A reader that fell more than the ring behind skips ahead.
++ * (fuxi_usb.c). A reader that fell more than the ring behind skips ahead.
 + * Returns the byte count; *pos advances.
 + */
 +uint32_t sweet_log_copy(uint64_t *pos, char *out, uint32_t max);
@@ -37,15 +37,15 @@
  struct sweet_log_header {
  	char magic[8];
  	uint32_t version, size;
---- a/bsd/dev/sweet_usb.c
-+++ b/bsd/dev/sweet_usb.c
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
 @@ -764,6 +764,54 @@
  	}
  }
  
 +/*
 + * Live console log over USB Ethernet: every 100 ms the new bytes of the
-+ * console ring (bsd/dev/sweet_ufs.c) go as UDP datagrams to
++ * console ring (bsd/dev/fuxi_ufs.c) go as UDP datagrams to
 + * 192.168.7.1:5140 (on the PC: nc -ukl 5140). Starts with the last 64 KiB
 + * so the boot is included. Nothing here may print (it would feed itself).
 + * Boot-arg sweetusblog=0 disables it.

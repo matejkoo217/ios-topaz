@@ -1,5 +1,5 @@
---- a/bsd/kern/sweet_amfi.c
-+++ b/bsd/kern/sweet_amfi.c
+--- a/bsd/kern/fuxi_amfi.c
++++ b/bsd/kern/fuxi_amfi.c
 @@ -29,6 +29,7 @@
  #include <mach/kern_return.h>
  #include <sys/codesign.h>

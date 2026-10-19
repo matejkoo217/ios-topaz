@@ -1,5 +1,5 @@
---- a/iokit/Kernel/arm/SweetWatchdog.cpp
-+++ b/iokit/Kernel/arm/SweetWatchdog.cpp
+--- a/iokit/Kernel/arm/FuxiWatchdog.cpp
++++ b/iokit/Kernel/arm/FuxiWatchdog.cpp
 @@ -8,6 +8,11 @@
   * this service accepts every call (check-in 1, enable/disable userspace
   * monitoring 3/4, 0/5, struct calls 2 and 9) and does nothing; each

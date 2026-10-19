@@ -1,5 +1,5 @@
---- a/bsd/kern/sweet_amfi.c
-+++ b/bsd/kern/sweet_amfi.c
+--- a/bsd/kern/fuxi_amfi.c
++++ b/bsd/kern/fuxi_amfi.c
 @@ -247,9 +247,12 @@
  STARTUP(EARLY_BOOT, STARTUP_RANK_MIDDLE, sweet_amfi_register);
  

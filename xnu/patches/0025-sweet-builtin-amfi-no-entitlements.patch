@@ -5,14 +5,14 @@ diff --git a/bsd/conf/files b/bsd/conf/files
  bsd/kern/kern_credential.c		standard
  bsd/kern/kern_crossarch.c		standard
  bsd/kern/kern_cs.c			standard
-+bsd/kern/sweet_amfi.c			standard
++bsd/kern/fuxi_amfi.c			standard
  bsd/kern/kern_csr.c			optional config_csr
  bsd/kern/kern_debug.c			standard
  bsd/kern/kern_symfile.c			standard
-diff --git a/bsd/kern/sweet_amfi.c b/bsd/kern/sweet_amfi.c
+diff --git a/bsd/kern/fuxi_amfi.c b/bsd/kern/fuxi_amfi.c
 new file mode 100644
 --- /dev/null
-+++ b/bsd/kern/sweet_amfi.c
++++ b/bsd/kern/fuxi_amfi.c
 @@ -0,0 +1,176 @@
 +/*
 + * Built-in AMFI interface for SWEET.

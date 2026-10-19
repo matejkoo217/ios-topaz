@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+diff --git a/bsd/dev/fuxi_ufs.c b/bsd/dev/fuxi_ufs.c
 index b7be070..467ce46 100644
---- a/bsd/dev/sweet_ufs.c
-+++ b/bsd/dev/sweet_ufs.c
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
 @@ -271,6 +271,15 @@ ufs_read_blocks(uint64_t lba, uint32_t count)
  	return ufs_scsi(cdb, sizeof(cdb), count * UFS_BLOCK, false);
  }
@@ -100,5 +100,5 @@ index b7be070..467ce46 100644
 +		thread_deallocate(gpt_thread);
 +	}
  	/*
- 	 * Input drivers (HID services in iokit/Kernel/arm/hid/SweetHID.cpp).
+ 	 * Input drivers (HID services in iokit/Kernel/arm/hid/FuxiHID.cpp).
  	 * Touch (FT5452 on QUP0 SE2) and keys (PM6125 over SPMI) are ported to

@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_usb.c
-+++ b/bsd/dev/sweet_usb.c
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
 @@ -13,10 +13,19 @@
  #if defined(ARM64_BOARD_CONFIG_SWEET)
  #include <sys/param.h>

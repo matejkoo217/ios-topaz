@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_ufs.c
-+++ b/bsd/dev/sweet_ufs.c
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
 @@ -30,6 +30,7 @@
  #include <miscfs/devfs/devfs.h>
  #include <kern/locks.h>

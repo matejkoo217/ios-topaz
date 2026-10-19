@@ -25,11 +25,11 @@ diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
  iokit/Kernel/arm/AppleARMSMP.cpp    					optional iokitcpp
 +
 +# SWEET device-tree platform (empty translation unit on other boards)
-+iokit/Kernel/arm/SweetPlatformExpert.cpp                         optional iokitcpp
-diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPlatformExpert.cpp
++iokit/Kernel/arm/FuxiPlatformExpert.cpp                         optional iokitcpp
+diff --git a/iokit/Kernel/arm/FuxiPlatformExpert.cpp b/iokit/Kernel/arm/FuxiPlatformExpert.cpp
 new file mode 100644
 --- /dev/null
-+++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
++++ b/iokit/Kernel/arm/FuxiPlatformExpert.cpp
 @@ -0,0 +1,86 @@
 +/*
 + * Minimal device-tree platform expert for Redmi Note 10 Pro (sweet).

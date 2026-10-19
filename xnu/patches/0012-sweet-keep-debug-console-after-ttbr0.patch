@@ -83,9 +83,9 @@ diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
  
  #if defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR)
  	/*
-diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
---- a/osfmk/arm64/sweet_early.c
-+++ b/osfmk/arm64/sweet_early.c
+diff --git a/osfmk/arm64/fuxi_early.c b/osfmk/arm64/fuxi_early.c
+--- a/osfmk/arm64/fuxi_early.c
++++ b/osfmk/arm64/fuxi_early.c
 @@ -2,7 +2,8 @@
   * Redmi Note 10 Pro bootstrap console. No allocation, locks, ADT parsing or
   * per-CPU state: panic() can reach this before a current thread exists.
@@ -94,7 +94,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 + * arm_vm_init installs a reserved kernel VA alias before removing TTBR0;
 + * retain this console until the normal framebuffer serial console is ready.
   */
- #include <arm64/sweet_early.h>
+ #include <arm64/fuxi_early.h>
  
 @@ -10,7 +11,8 @@
  #include <stdint.h>
@@ -151,9 +151,9 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
  	early_disabled = 1;
  	__asm__ volatile("dsb sy" ::: "memory");
  }
-diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
---- a/osfmk/arm64/sweet_early.h
-+++ b/osfmk/arm64/sweet_early.h
+diff --git a/osfmk/arm64/fuxi_early.h b/osfmk/arm64/fuxi_early.h
+--- a/osfmk/arm64/fuxi_early.h
++++ b/osfmk/arm64/fuxi_early.h
 @@ -1,14 +1,16 @@
 -/* Early screen diagnostics, valid only while the bootstrap TTBR0 is live. */
 +/* Screen diagnostics through bootstrap TTBR0 and the final kernel TTBR1. */
@@ -179,7 +179,7 @@ diff --git a/osfmk/arm64/Makefile b/osfmk/arm64/Makefile
  	monotonic.h \
  	perfmon_arm64_regs.h \
  	proc_reg.h \
-+	sweet_early.h \
++	fuxi_early.h \
  	asm.h \
  	tlb.h \
  	pal_hibernate.h
@@ -217,7 +217,7 @@ diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
  #include <pexpert/arm/consistent_debug.h>
  #include <pexpert/arm64/board_config.h>
  #include <arm64/proc_reg.h>
-+#include <arm64/sweet_early.h>
++#include <arm64/fuxi_early.h>
  #include <pexpert/arm/protos.h>
  #include <kern/sched_prim.h>
  #if HIBERNATION

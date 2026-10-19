@@ -1,7 +1,7 @@
-diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
+diff --git a/bsd/dev/fuxi_touch.c b/bsd/dev/fuxi_touch.c
 index f5fb633..ff9d858 100644
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/fuxi_touch.c
++++ b/bsd/dev/fuxi_touch.c
 @@ -490,6 +490,15 @@ touch_focaltech(void)
  	if (n > st.s_maxn) {
  		st.s_maxn = n;

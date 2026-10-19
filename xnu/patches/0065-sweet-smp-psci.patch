@@ -1,5 +1,5 @@
---- a/iokit/Kernel/arm/SweetCPU.cpp
-+++ b/iokit/Kernel/arm/SweetCPU.cpp
+--- a/iokit/Kernel/arm/FuxiCPU.cpp
++++ b/iokit/Kernel/arm/FuxiCPU.cpp
 @@ -1,7 +1,7 @@
  /*
 - * Single-CPU bring-up for sweet using XNU's legacy IOCPU interface.

@@ -1,10 +1,10 @@
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
 @@ -15,3 +15,7 @@
- iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp
- iokit/Kernel/arm/SweetSurface.cpp                                optional iokitcpp
- iokit/Kernel/arm/SweetFramebuffer.cpp                            optional iokitcpp
-+iokit/Kernel/arm/hid/SweetHID.cpp                                optional iokitcpp
+ iokit/Kernel/arm/FuxiWatchdog.cpp                               optional iokitcpp
+ iokit/Kernel/arm/FuxiSurface.cpp                                optional iokitcpp
+ iokit/Kernel/arm/FuxiFramebuffer.cpp                            optional iokitcpp
++iokit/Kernel/arm/hid/FuxiHID.cpp                                optional iokitcpp
 +iokit/Kernel/arm/hid/IOHIDEvent.cpp                              optional iokitcpp
 +iokit/Kernel/arm/hid/IOHIDEventServiceQueue.cpp                  optional iokitcpp
 +iokit/Kernel/arm/hid/IOHIDEventServiceUserClient.cpp             optional iokitcpp
@@ -20592,7 +20592,7 @@
 +#endif /* !_DEV_EVENT_H */
 +
 --- /dev/null
-+++ b/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/FuxiHID.cpp
 @@ -0,0 +1,539 @@
 +/*
 + * SWEET: HID event services for the iOS userland (backboardd's HID event

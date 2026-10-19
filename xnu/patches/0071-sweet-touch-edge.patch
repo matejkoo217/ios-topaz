@@ -1,5 +1,5 @@
---- a/iokit/Kernel/arm/hid/SweetHID.cpp
-+++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+--- a/iokit/Kernel/arm/hid/FuxiHID.cpp
++++ b/iokit/Kernel/arm/hid/FuxiHID.cpp
 @@ -348,6 +348,14 @@
   * absolute digitizers.
   */

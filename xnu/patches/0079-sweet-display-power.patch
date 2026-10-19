@@ -1,5 +1,5 @@
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
++++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
 @@ -15,7 +15,12 @@
   *   5  SwapEnd, struct 0x46c: +0x50 swap id, +0x54 IOSurface id per layer
   *      (4 layers), +0x64 rect a / +0xc4 rect b per layer (int x,y,w,h),

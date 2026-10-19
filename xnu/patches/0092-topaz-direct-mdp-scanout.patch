@@ -1,9 +1,9 @@
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+diff --git a/iokit/Kernel/arm/FuxiFramebuffer.cpp b/iokit/Kernel/arm/FuxiFramebuffer.cpp
 index 2094443..bd72f09 100644
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
++++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
 @@ -37,6 +37,8 @@
- #include "SweetSurface.h"
+ #include "FuxiSurface.h"
  
  extern "C" int sweet_console_muted;     /* osfmk/console/serial_console.c */
 +extern "C" void flush_dcache64(addr64_t addr, unsigned count, int phys);  /* osfmk/arm/caches.c */
@@ -139,10 +139,10 @@ index 2094443..bd72f09 100644
  
  	if (!fConsolePaused) {
  		int quiet = 0;
-diff --git a/iokit/Kernel/arm/SweetSurface.cpp b/iokit/Kernel/arm/SweetSurface.cpp
+diff --git a/iokit/Kernel/arm/FuxiSurface.cpp b/iokit/Kernel/arm/FuxiSurface.cpp
 index 7f90c56..bacf85e 100644
---- a/iokit/Kernel/arm/SweetSurface.cpp
-+++ b/iokit/Kernel/arm/SweetSurface.cpp
+--- a/iokit/Kernel/arm/FuxiSurface.cpp
++++ b/iokit/Kernel/arm/FuxiSurface.cpp
 @@ -34,6 +34,7 @@
  #include <IOKit/IOLib.h>
  #include <IOKit/IOLocks.h>
@@ -270,10 +270,10 @@ index 7f90c56..bacf85e 100644
  		IOBufferMemoryDescriptor *mem = NULL;
  		if ((uint64_t)OSAddAtomic64(s->allocSize, (volatile SInt64 *)&sweet_surface_wired) +
  		    s->allocSize <= SWEET_SURFACE_WIRED_MAX) {
-diff --git a/iokit/Kernel/arm/SweetSurface.h b/iokit/Kernel/arm/SweetSurface.h
+diff --git a/iokit/Kernel/arm/FuxiSurface.h b/iokit/Kernel/arm/FuxiSurface.h
 index fbcdfac..10b39eb 100644
---- a/iokit/Kernel/arm/SweetSurface.h
-+++ b/iokit/Kernel/arm/SweetSurface.h
+--- a/iokit/Kernel/arm/FuxiSurface.h
++++ b/iokit/Kernel/arm/FuxiSurface.h
 @@ -39,8 +39,10 @@ public:
  	IOOptionBits              mapCache;     /* cache mode for user mappings */
  	IOBufferMemoryDescriptor *state;        /* shared state page, read-only for users */

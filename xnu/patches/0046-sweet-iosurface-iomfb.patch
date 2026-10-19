@@ -1,11 +1,11 @@
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
 @@ -13,3 +13,5 @@
- iokit/Kernel/arm/SweetEntitlements.cpp                           optional iokitcpp
- iokit/Kernel/arm/SweetKeyStore.cpp                               optional iokitcpp
- iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp
-+iokit/Kernel/arm/SweetSurface.cpp                                optional iokitcpp
-+iokit/Kernel/arm/SweetFramebuffer.cpp                            optional iokitcpp
+ iokit/Kernel/arm/FuxiEntitlements.cpp                           optional iokitcpp
+ iokit/Kernel/arm/FuxiKeyStore.cpp                               optional iokitcpp
+ iokit/Kernel/arm/FuxiWatchdog.cpp                               optional iokitcpp
++iokit/Kernel/arm/FuxiSurface.cpp                                optional iokitcpp
++iokit/Kernel/arm/FuxiFramebuffer.cpp                            optional iokitcpp
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
 @@ -57,6 +57,16 @@
@@ -25,8 +25,8 @@
  #endif
      "   {"
      "     'IOClass'         = IOPanicPlatform;"
---- a/iokit/Kernel/arm/SweetPlatformExpert.cpp
-+++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
+--- a/iokit/Kernel/arm/FuxiPlatformExpert.cpp
++++ b/iokit/Kernel/arm/FuxiPlatformExpert.cpp
 @@ -62,6 +62,18 @@
  		cpus->release();
  	}
@@ -47,12 +47,12 @@
  
  bool
 --- /dev/null
-+++ b/iokit/Kernel/arm/SweetSurface.h
++++ b/iokit/Kernel/arm/FuxiSurface.h
 @@ -0,0 +1,65 @@
 +/*
-+ * Built-in IOSurface for SWEET (see SweetSurface.cpp).
++ * Built-in IOSurface for SWEET (see FuxiSurface.cpp).
 + *
-+ * Shared with SweetFramebuffer.cpp: the framebuffer looks surfaces up by
++ * Shared with FuxiFramebuffer.cpp: the framebuffer looks surfaces up by
 + * id when a swap names them and publishes the panel memory itself as the
 + * default framebuffer surface.
 + */
@@ -115,7 +115,7 @@
 +#endif /* SWEET */
 +#endif /* _SWEET_SURFACE_H */
 --- /dev/null
-+++ b/iokit/Kernel/arm/SweetSurface.cpp
++++ b/iokit/Kernel/arm/FuxiSurface.cpp
 @@ -0,0 +1,872 @@
 +/*
 + * Built-in IOSurface for SWEET.
@@ -144,7 +144,7 @@
 + * Values, notifications, accelerators and shared events are accepted and
 + * ignored (logged once per selector).
 + */
-+#include "SweetSurface.h"
++#include "FuxiSurface.h"
 +
 +#if defined(SWEET)
 +#include <IOKit/IOService.h>
@@ -990,7 +990,7 @@
 +}
 +#endif /* SWEET */
 --- /dev/null
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
 @@ -0,0 +1,455 @@
 +/*
 + * Built-in IOMobileFramebuffer for SWEET: the ABL's continuous-splash
@@ -1023,7 +1023,7 @@
 + * the GUI by default: pausing it (boot-arg sweetfb_noconsole=1, on the
 + * first swap) switches the console to serial, which also hides panics.
 + */
-+#include "SweetSurface.h"
++#include "FuxiSurface.h"
 +
 +#if defined(SWEET)
 +#include <IOKit/IOService.h>

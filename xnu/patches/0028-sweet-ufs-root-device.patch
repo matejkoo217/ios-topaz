@@ -5,7 +5,7 @@ diff --git a/bsd/conf/files b/bsd/conf/files
  bsd/dev/random/randomdev.c		standard
  
  bsd/dev/memdev.c			standard
-+bsd/dev/sweet_ufs.c			standard
++bsd/dev/fuxi_ufs.c			standard
  bsd/dev/mem.c				standard
  bsd/dev/munge.c 			optional config_requires_u32_munging
  bsd/dev/unix_startup.c			standard
@@ -18,7 +18,7 @@ diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
  
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +//
-+//	SWEET: root on a GPT partition of the internal UFS (bsd/dev/sweet_ufs.c)
++//	SWEET: root on a GPT partition of the internal UFS (bsd/dev/fuxi_ufs.c)
 +//
 +	if (strcmp(rdBootVar, "ufsroot0") == 0) {
 +		extern int sweet_ufs_rootdev(dev_t *dev);
@@ -37,10 +37,10 @@ diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
  //
  //	Now check if we are trying to root on a memory device
  //
-diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+diff --git a/bsd/dev/fuxi_ufs.c b/bsd/dev/fuxi_ufs.c
 new file mode 100644
 --- /dev/null
-+++ b/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
 @@ -0,0 +1,536 @@
 +/*
 + * SWEET internal UFS root device (read-only).

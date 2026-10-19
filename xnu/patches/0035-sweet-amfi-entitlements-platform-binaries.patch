@@ -5,7 +5,7 @@
  	vfsinit();
  
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
-+	/* AMFI's MAC policy is built in on SWEET (bsd/kern/sweet_amfi.c). */
++	/* AMFI's MAC policy is built in on SWEET (bsd/kern/fuxi_amfi.c). */
 +	extern void sweet_amfi_policy_register(void);
 +	sweet_amfi_policy_register();
 +#endif
@@ -13,8 +13,8 @@
  #if SWEET_HFS
  	/* HFS is built in on SWEET: register it like its kext would, before mounting root. */
  	extern void sweet_hfs_register(void);
---- a/bsd/kern/sweet_amfi.c
-+++ b/bsd/kern/sweet_amfi.c
+--- a/bsd/kern/fuxi_amfi.c
++++ b/bsd/kern/fuxi_amfi.c
 @@ -5,12 +5,19 @@
   * provides entitlements through the closed CoreEntitlements library. SWEET
   * has neither, and code signing reaches it on every exec (ubc_cs_blob_add).
@@ -27,7 +27,7 @@
 - * Image4), so the TrustCache interface is left at version 0.
 + * Entitlements: when a code signature is added, its XML entitlements blob
 + * (already checked against the code directory) is parsed into a
-+ * SweetEntitlements object (iokit/Kernel/arm/SweetEntitlements.cpp), set as
++ * SweetEntitlements object (iokit/Kernel/arm/FuxiEntitlements.cpp), set as
 + * the blob's csb_entitlements, and every query is answered from it. DER-only
 + * signatures get none. Code signature and page hash validation stay with the
 + * kernel. Trust caches remain unavailable (no Image4), so the TrustCache
@@ -53,7 +53,7 @@
 +#include <sys/vnode.h>
 +#include <security/mac_policy.h>
 +
-+/* iokit/Kernel/arm/SweetEntitlements.cpp */
++/* iokit/Kernel/arm/FuxiEntitlements.cpp */
 +void *sweet_entitlements_create(const CS_GenericBlob *blob, size_t blob_len);
 +void *sweet_entitlements_copy_dict(const void *ent);
 +bool sweet_entitlements_copy_xml(const void *ent, CS_GenericBlob **out);
@@ -284,15 +284,15 @@
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
 @@ -10,3 +10,4 @@
- iokit/Kernel/arm/SweetPlatformExpert.cpp                         optional iokitcpp
+ iokit/Kernel/arm/FuxiPlatformExpert.cpp                         optional iokitcpp
  
- iokit/Kernel/arm/SweetCPU.cpp                                    optional iokitcpp
-+iokit/Kernel/arm/SweetEntitlements.cpp                           optional iokitcpp
+ iokit/Kernel/arm/FuxiCPU.cpp                                    optional iokitcpp
++iokit/Kernel/arm/FuxiEntitlements.cpp                           optional iokitcpp
 --- /dev/null
-+++ b/iokit/Kernel/arm/SweetEntitlements.cpp
++++ b/iokit/Kernel/arm/FuxiEntitlements.cpp
 @@ -0,0 +1,184 @@
 +/*
-+ * Entitlements for the SWEET built-in AMFI interface (bsd/kern/sweet_amfi.c).
++ * Entitlements for the SWEET built-in AMFI interface (bsd/kern/fuxi_amfi.c).
 + *
 + * Apple's AMFI keeps a CoreEntitlements context per code signature; that
 + * library is closed. Here each signature with an XML entitlements blob gets

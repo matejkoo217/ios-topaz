@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_i2c1.c
-+++ b/bsd/dev/sweet_i2c1.c
+--- a/bsd/dev/fuxi_i2c1.c
++++ b/bsd/dev/fuxi_i2c1.c
 @@ -183,8 +183,25 @@
  	if (!i2c1_gcc || !i2c1_west || !i2c1_se) {
  		return ENOMEM;

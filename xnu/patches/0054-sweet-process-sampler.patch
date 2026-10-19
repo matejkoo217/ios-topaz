@@ -3,13 +3,13 @@
 @@ -105,6 +105,7 @@
  
  bsd/dev/memdev.c			standard
- bsd/dev/sweet_ufs.c			standard
-+bsd/dev/sweet_sample.c			standard
+ bsd/dev/fuxi_ufs.c			standard
++bsd/dev/fuxi_sample.c			standard
  bsd/dev/mem.c				standard
  bsd/dev/munge.c 			optional config_requires_u32_munging
  bsd/dev/unix_startup.c			standard
---- a/bsd/dev/sweet_ufs.c
-+++ b/bsd/dev/sweet_ufs.c
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
 @@ -46,6 +46,7 @@
  extern void thread_deallocate(thread_t);
  extern int hz;
@@ -33,7 +33,7 @@
  	kfree_data(buf, 65536);
  }
 +/*
-+ * SWEET process sampler (bsd/dev/sweet_sample.c): user pc/lr/sp and a frame
++ * SWEET process sampler (bsd/dev/fuxi_sample.c): user pc/lr/sp and a frame
 + * pointer backtrace of every thread of a task, from the saved user state.
 + */
 +void sweet_sample_task(const char *name, int pid, task_t task);
@@ -105,8 +105,8 @@
  		}
  		sweet_iolog_parsed = 1;
  	}
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
++++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
 @@ -217,6 +217,7 @@
  }
  
@@ -127,7 +127,7 @@
  		int quiet = 0;
  		fConsolePaused = true;
 --- /dev/null
-+++ b/bsd/dev/sweet_sample.c
++++ b/bsd/dev/fuxi_sample.c
 @@ -0,0 +1,88 @@
 +/*
 + * SWEET process sampler: where is a daemon stuck?

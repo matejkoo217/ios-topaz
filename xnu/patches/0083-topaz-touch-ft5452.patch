@@ -1,12 +1,12 @@
-diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
+diff --git a/bsd/dev/fuxi_touch.c b/bsd/dev/fuxi_touch.c
 index 03defe6..03064d7 100644
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/fuxi_touch.c
++++ b/bsd/dev/fuxi_touch.c
 @@ -1,7 +1,9 @@
  /*
   * SWEET SE7 FIFO I2C / GT9896 Yellowstone / Focaltech 54:52 bring-up.
 - * Call once after the scheduler is running; all work runs on one thread.
-- * Requires ABL-loaded GENI I2C firmware; votes L11C through sweet_rpmh.c.
+- * Requires ABL-loaded GENI I2C firmware; votes L11C through fuxi_rpmh.c.
 + * topaz (SM6225): FocalTech FT5452 at 0x38 on QUP0 SE2, IRQ GPIO80, reset
 + * GPIO86, AVDD enable GPIO36 (no regulator), values from topaz-woa
 + * TopazTouch. Call once after the scheduler is running; all work runs on one
@@ -229,14 +229,14 @@ index 03defe6..03064d7 100644
  		    (++ticks % 10u) == 0) {
  			int err = st.kind == TOUCH_GOODIX ? touch_goodix() : touch_focaltech();
  			if (err) {
-diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+diff --git a/bsd/dev/fuxi_ufs.c b/bsd/dev/fuxi_ufs.c
 index 40044c8..af6e35c 100644
---- a/bsd/dev/sweet_ufs.c
-+++ b/bsd/dev/sweet_ufs.c
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
 @@ -658,18 +658,18 @@ sweet_ufs_init(void)
  	sweet_sample_start();
  	/*
- 	 * Input drivers (HID services in iokit/Kernel/arm/hid/SweetHID.cpp).
+ 	 * Input drivers (HID services in iokit/Kernel/arm/hid/FuxiHID.cpp).
 -	 * They still poke SM7150 MMIO (SPMI, GENI SE7, DWC3 at 0xa600000); on
 -	 * topaz that faults or hangs, so they only run with sweethw=1 until
 -	 * they are ported.

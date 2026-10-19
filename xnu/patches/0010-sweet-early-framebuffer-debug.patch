@@ -6,7 +6,7 @@ index e26a1d7..e3579f1 100644
  #include <pexpert/arm/consistent_debug.h>
  #include <pexpert/device_tree.h>
  #include <arm64/proc_reg.h>
-+#include <arm64/sweet_early.h>
++#include <arm64/fuxi_early.h>
  #include <arm/pmap.h>
  #include <arm/caches_internal.h>
  #include <arm/cpu_internal.h>
@@ -73,7 +73,7 @@ index d89b0f1..d0c710d 100644
  #include <machine/atomic.h>
  #include <arm64/proc_reg.h>
  #include <arm64/lowglobals.h>
-+#include <arm64/sweet_early.h>
++#include <arm64/fuxi_early.h>
  #include <arm/cpu_data_internal.h>
  #include <arm/misc_protos.h>
  #include <pexpert/arm64/boot.h>
@@ -140,11 +140,11 @@ index ccbb188..777aca4 100644
  	/* Ensure TTEs are visible */
  	dsb		ish
  
-diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+diff --git a/osfmk/arm64/fuxi_early.c b/osfmk/arm64/fuxi_early.c
 new file mode 100644
 index 0000000..8f4c808
 --- /dev/null
-+++ b/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/fuxi_early.c
 @@ -0,0 +1,130 @@
 +/*
 + * Redmi Note 10 Pro bootstrap console. No allocation, locks, ADT parsing or
@@ -152,7 +152,7 @@ index 0000000..8f4c808
 + * start.s maps the splash framebuffer VA=PA as Normal Non-Cacheable memory.
 + * Stop using that mapping before arm_vm_init tears down bootstrap TTBR0.
 + */
-+#include <arm64/sweet_early.h>
++#include <arm64/fuxi_early.h>
 +
 +#if defined(SWEET)
 +#include <stdint.h>
@@ -276,11 +276,11 @@ index 0000000..8f4c808
 +	__asm__ volatile("dsb sy" ::: "memory");
 +}
 +#endif /* SWEET */
-diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
+diff --git a/osfmk/arm64/fuxi_early.h b/osfmk/arm64/fuxi_early.h
 new file mode 100644
 index 0000000..fbbc827
 --- /dev/null
-+++ b/osfmk/arm64/sweet_early.h
++++ b/osfmk/arm64/fuxi_early.h
 @@ -0,0 +1,22 @@
 +/* Early screen diagnostics, valid only while the bootstrap TTBR0 is live. */
 +#ifndef _ARM64_SWEET_EARLY_H_
@@ -312,7 +312,7 @@ index c40d57b..b0dad49 100644
  osfmk/arm/arm_timer.c		standard
  osfmk/arm/arm_init.c	optional config_pmap_ppl
  osfmk/arm64/arm_vm_init.c	optional config_pmap_ppl
-+osfmk/arm64/sweet_early.c	standard
++osfmk/arm64/fuxi_early.c	standard
  osfmk/arm64/arm64_hypercall.c	standard
  osfmk/arm/io_map.c		standard
  osfmk/arm64/loose_ends.c	standard
@@ -325,7 +325,7 @@ index 0a00656..437adb1 100644
  #include <sys/pgo.h>
  #include <console/serial_protos.h>
 +#if defined(__arm64__)
-+#include <arm64/sweet_early.h>
++#include <arm64/fuxi_early.h>
 +#endif
  #include <IOKit/IOBSD.h>
  

@@ -230,7 +230,7 @@ index 0000000..a589227
 +#define SWEET                     1
 +/* sweet's board_config.h is NOT included for FUXI (see the
 + * `&& !defined(ARM64_BOARD_CONFIG_FUXI)` guard), so the shared SWEET bridge
-+ * needs this one here: iokit/Kernel/arm/SweetCPU.cpp and
++ * needs this one here: iokit/Kernel/arm/FuxiCPU.cpp and
 + * osfmk/arm64/machine_routines.c both use it. Same value as SWEET.h. */
 +#define SWEET_SMP_MAX_CPUS         8
 +

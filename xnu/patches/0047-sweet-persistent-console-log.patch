@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_ufs.c
-+++ b/bsd/dev/sweet_ufs.c
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
 @@ -37,10 +37,15 @@
  #include <pexpert/pexpert.h>
  #include <pexpert/device_tree.h>
@@ -140,7 +140,7 @@
   * @param size The number of characters to print to the console.
   */
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
-+extern void sweet_log_append(const char *c, int size);  /* bsd/dev/sweet_ufs.c */
++extern void sweet_log_append(const char *c, int size);  /* bsd/dev/fuxi_ufs.c */
 +#endif
 +
  static inline void

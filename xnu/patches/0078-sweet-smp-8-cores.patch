@@ -16,8 +16,8 @@
  
  #define ARM_ARCH_TIMER
  #define __ARM_ARCH__              8
---- a/iokit/Kernel/arm/SweetCPU.cpp
-+++ b/iokit/Kernel/arm/SweetCPU.cpp
+--- a/iokit/Kernel/arm/FuxiCPU.cpp
++++ b/iokit/Kernel/arm/FuxiCPU.cpp
 @@ -73,9 +73,10 @@
  	if (*(const uint32_t *)reg->getBytesNoCopy() != cpu->phys_id) {
  		return false;

@@ -3,7 +3,7 @@
 @@ -268,6 +268,12 @@
   */
  #if defined(ARM64_BOARD_CONFIG_SWEET)
- extern void sweet_log_append(const char *c, int size);  /* bsd/dev/sweet_ufs.c */
+ extern void sweet_log_append(const char *c, int size);  /* bsd/dev/fuxi_ufs.c */
 +/*
 + * Set by AppleCLCD (boot-arg sweetfb_noconsole=1) once the GUI presents:
 + * console text still goes to the persistent log, but is not drawn over
@@ -23,8 +23,8 @@
  #endif
  
  	if (disableConsoleOutput) {
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
++++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
 @@ -26,11 +26,13 @@
   *
   * The panel memory itself is published as an IOSurface and returned as the
@@ -34,7 +34,7 @@
 + * the GUI by default: boot-arg sweetfb_noconsole=1 stops drawing it from
 + * the first swap on (it still reaches the persistent log; panics draw).
   */
- #include "SweetSurface.h"
+ #include "FuxiSurface.h"
  
 +extern "C" int sweet_console_muted;     /* osfmk/console/serial_console.c */
 +

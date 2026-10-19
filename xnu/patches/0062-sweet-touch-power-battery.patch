@@ -1,23 +1,23 @@
 --- a/bsd/conf/files
 +++ b/bsd/conf/files
 @@ -108,6 +108,8 @@
- bsd/dev/sweet_sample.c			standard
- bsd/dev/sweet_keys.c			standard
- bsd/dev/sweet_touch.c			standard
-+bsd/dev/sweet_rpmh.c			standard
-+bsd/dev/sweet_spmi.c			standard
+ bsd/dev/fuxi_sample.c			standard
+ bsd/dev/fuxi_keys.c			standard
+ bsd/dev/fuxi_touch.c			standard
++bsd/dev/fuxi_rpmh.c			standard
++bsd/dev/fuxi_spmi.c			standard
  bsd/dev/mem.c				standard
  bsd/dev/munge.c 			optional config_requires_u32_munging
  bsd/dev/unix_startup.c			standard
---- a/bsd/dev/sweet_touch.c
-+++ b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/fuxi_touch.c
++++ b/bsd/dev/fuxi_touch.c
 @@ -1,8 +1,8 @@
  /*
   * SWEET SE7 FIFO I2C / GT9896 Yellowstone / Focaltech 54:52 bring-up.
   * Call once after the scheduler is running; all work runs on one thread.
 - * Requires ABL-loaded GENI I2C firmware and an already powered L11C rail.
 - * No firmware/config upload, RPMh votes or PMIC writes. Only IC data write:
-+ * Requires ABL-loaded GENI I2C firmware; votes L11C through sweet_rpmh.c.
++ * Requires ABL-loaded GENI I2C firmware; votes L11C through fuxi_rpmh.c.
 + * No firmware/config upload or direct PMIC writes. Only IC data write:
   * zero to GT9896's event status after reading a report. See hw-report.md.
   */
@@ -86,11 +86,11 @@
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
 @@ -15,6 +15,7 @@
- iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp
- iokit/Kernel/arm/SweetSurface.cpp                                optional iokitcpp
- iokit/Kernel/arm/SweetFramebuffer.cpp                            optional iokitcpp
-+iokit/Kernel/arm/SweetBattery.cpp                                optional iokitcpp
- iokit/Kernel/arm/hid/SweetHID.cpp                                optional iokitcpp
+ iokit/Kernel/arm/FuxiWatchdog.cpp                               optional iokitcpp
+ iokit/Kernel/arm/FuxiSurface.cpp                                optional iokitcpp
+ iokit/Kernel/arm/FuxiFramebuffer.cpp                            optional iokitcpp
++iokit/Kernel/arm/FuxiBattery.cpp                                optional iokitcpp
+ iokit/Kernel/arm/hid/FuxiHID.cpp                                optional iokitcpp
  iokit/Kernel/arm/hid/IOHIDEvent.cpp                              optional iokitcpp
  iokit/Kernel/arm/hid/IOHIDEventServiceQueue.cpp                  optional iokitcpp
 --- a/iokit/KernelConfigTables.cpp
@@ -108,7 +108,7 @@
      "   {"
      "     'IOClass'         = IOPanicPlatform;"
 --- /dev/null
-+++ b/bsd/dev/sweet_rpmh.c
++++ b/bsd/dev/fuxi_rpmh.c
 @@ -0,0 +1,358 @@
 +/*
 + * SWEET PM6150L L11C bring-up; see report.md for DT and source evidence.
@@ -469,10 +469,10 @@
 +}
 +#endif /* ARM64_BOARD_CONFIG_SWEET */
 --- /dev/null
-+++ b/bsd/dev/sweet_spmi.c
++++ b/bsd/dev/fuxi_spmi.c
 @@ -0,0 +1,126 @@
 +/*
-+ * Battery-only adaptation of input/sweet_keys.c, observer EXT_READL.
++ * Battery-only adaptation of input/fuxi_keys.c, observer EXT_READL.
 + * PMIC READ ONLY. The only MMIO store issues a one-byte read command.
 + * No interrupt clear, peripheral enable, charger config, or PMIC writes.
 + * Init is serialized by the single built-in SweetBattery personality.
@@ -483,7 +483,7 @@
 +#include <sys/systm.h>
 +#include <machine/machine_routines.h>
 +#include <IOKit/IOLocks.h>
-+#include "sweet_spmi.h"
++#include "fuxi_spmi.h"
 +
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 +
@@ -598,7 +598,7 @@
 +}
 +#endif /* ARM64_BOARD_CONFIG_SWEET */
 --- /dev/null
-+++ b/bsd/dev/sweet_spmi.h
++++ b/bsd/dev/fuxi_spmi.h
 @@ -0,0 +1,14 @@
 +/* Shared C/C++ interface. Init once, on the SweetBattery start thread. */
 +#ifndef SWEET_BATTERY_SPMI_H
@@ -615,7 +615,7 @@
 +#endif
 +#endif
 --- /dev/null
-+++ b/iokit/Kernel/arm/SweetBattery.cpp
++++ b/iokit/Kernel/arm/FuxiBattery.cpp
 @@ -0,0 +1,319 @@
 +/*
 + * Built-in iOS battery bring-up service. Default: 100%, AC, not charging.
@@ -631,7 +631,7 @@
 +#include <IOKit/pwr_mgt/IOPMPowerSource.h>
 +#include <libkern/c++/OSCollectionIterator.h>
 +#include <pexpert/pexpert.h>
-+/* bsd/dev/sweet_spmi.c */
++/* bsd/dev/fuxi_spmi.c */
 +extern "C" int sweet_spmi_init(void);
 +extern "C" int sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
 +

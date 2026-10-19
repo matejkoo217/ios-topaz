@@ -1,5 +1,5 @@
---- a/bsd/kern/sweet_amfi.c
-+++ b/bsd/kern/sweet_amfi.c
+--- a/bsd/kern/fuxi_amfi.c
++++ b/bsd/kern/fuxi_amfi.c
 @@ -272,10 +272,54 @@
  	return 0;
  }

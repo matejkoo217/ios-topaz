@@ -1,10 +1,10 @@
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
 @@ -12,3 +12,4 @@
- iokit/Kernel/arm/SweetCPU.cpp                                    optional iokitcpp
- iokit/Kernel/arm/SweetEntitlements.cpp                           optional iokitcpp
- iokit/Kernel/arm/SweetKeyStore.cpp                               optional iokitcpp
-+iokit/Kernel/arm/SweetWatchdog.cpp                               optional iokitcpp
+ iokit/Kernel/arm/FuxiCPU.cpp                                    optional iokitcpp
+ iokit/Kernel/arm/FuxiEntitlements.cpp                           optional iokitcpp
+ iokit/Kernel/arm/FuxiKeyStore.cpp                               optional iokitcpp
++iokit/Kernel/arm/FuxiWatchdog.cpp                               optional iokitcpp
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
 @@ -52,6 +52,11 @@
@@ -20,7 +20,7 @@
      "   {"
      "     'IOClass'         = IOPanicPlatform;"
 --- /dev/null
-+++ b/iokit/Kernel/arm/SweetWatchdog.cpp
++++ b/iokit/Kernel/arm/FuxiWatchdog.cpp
 @@ -0,0 +1,94 @@
 +/*
 + * Built-in IOWatchdog for SWEET.

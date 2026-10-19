@@ -1,5 +1,5 @@
---- a/iokit/Kernel/arm/SweetSurface.cpp
-+++ b/iokit/Kernel/arm/SweetSurface.cpp
+--- a/iokit/Kernel/arm/FuxiSurface.cpp
++++ b/iokit/Kernel/arm/FuxiSurface.cpp
 @@ -407,7 +407,7 @@
  	OSArray *fRefs;
  

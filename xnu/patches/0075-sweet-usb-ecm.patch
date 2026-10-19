@@ -1,5 +1,5 @@
---- a/bsd/dev/sweet_usb.c
-+++ b/bsd/dev/sweet_usb.c
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
 @@ -21,6 +21,18 @@
  #include <vm/pmap.h>
  #include <vm/vm_kern.h>

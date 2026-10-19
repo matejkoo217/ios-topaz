@@ -1,7 +1,7 @@
-diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+diff --git a/iokit/Kernel/arm/FuxiCPU.cpp b/iokit/Kernel/arm/FuxiCPU.cpp
 index 1724396..96c557b 100644
---- a/iokit/Kernel/arm/SweetCPU.cpp
-+++ b/iokit/Kernel/arm/SweetCPU.cpp
+--- a/iokit/Kernel/arm/FuxiCPU.cpp
++++ b/iokit/Kernel/arm/FuxiCPU.cpp
 @@ -144,9 +144,13 @@ SweetCPU::startAll(void *arg __unused, wait_result_t result __unused)
  		}
  		IOSleep(1);
