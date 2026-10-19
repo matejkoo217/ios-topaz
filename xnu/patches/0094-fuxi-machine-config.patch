@@ -1,0 +1,355 @@
+diff --git a/config/MASTER.arm64.fuxi b/config/MASTER.arm64.fuxi
+new file mode 100644
+index 0000000..f03605a
+--- /dev/null
++++ b/config/MASTER.arm64.fuxi
+@@ -0,0 +1,131 @@
++#
++# fuxi (Xiaomi 13, SM8550 "kalama"): a copy of MASTER.arm64.sweet. The feature
++# set is deliberately identical - every config_* option below is either
++# SoC-independent bring-up (nos_arm_asm, nos_arm_pmap, the kperf/kpc stub) or a
++# userland/filesystem need of the iOS 16 root (mockfs, sweet_hfs, bindfs,
++# nullfs) and applies to fuxi unchanged.
++#
++# SM6225/SM7150-specific entries that MUST be revisited for fuxi:
++#   * nos_arm_asm / nos_arm_pmap (KERNEL_BASE) and kperf/kpc: these drop
++#     Apple's closed, arm64e-only KDK libs. fuxi is plain arm64 too, so they
++#     stay - but kpc is a no-hardware stub (no PMU path yet) and kperf only
++#     builds because of it.
++#   * sweet_hfs / mockfs / bindfs: the inherited sweet filesystem stack. It is
++#     SoC-independent, but it carries the sweet_* source names - retarget the
++#     drivers, not this list.
++#   * config_pmap_ppl (KERNEL_BASE): PPL/XNU_MONITOR is off for both sweet and
++#     fuxi (NO_MONITOR in the board header). Revisit if a PPL build is wanted.
++#   * Nothing in this file encodes the 16K-granule, ARMv8.0, LSE or PAN choices
++#     - those live in pexpert/pexpert/arm64/FUXI.h. fuxi is ARMv9 with PAN on
++#     and no -mcpu=cortex-a53 (see FUXI.h).
++#   * The driver gating (#if defined(SWEET) / ARM64_BOARD_CONFIG_SWEET) is
++#     shared with fuxi on purpose; see MACHINE_CONFIG_FUXI.md.
++#
++#
++# Mach Operating System
++# Copyright (c) 1986 Carnegie-Mellon University
++# Copyright 2001-2018 Apple Inc.
++#
++# All rights reserved.  The CMU software License Agreement
++# specifies the terms and conditions for use and redistribution.
++#  
++######################################################################
++#
++#  Master Apple configuration file (see the master machine independent
++#  configuration file for a description of the file format).
++#
++######################################################################
++#  
++#  Standard Apple OS Configurations:
++#  -------- ----- -- ---------------
++#
++#  KERNEL_BASE =    [ arm64 config_pmap_ppl medium msgb_large config_requires_u32_munging config_delay_idle_sleep config_proc_udata_storage config_uexc config_darkboot nos_arm_asm nos_arm_pmap ]
++#  KERNEL_RELEASE = [ KERNEL_BASE ]
++#  KERNEL_DEV =     [ KERNEL_BASE development mach_assert config_xnupost proc_ref_debug config_proc_resource_limits ]
++#  KERNEL_DEBUG =   [ KERNEL_BASE debug mach_assert config_xnupost config_waitq_stats config_workloop_debug config_proc_resource_limits ]
++#  BSD_BASE =       [ mach_bsd sysv_sem sysv_msg sysv_shm config_netboot config_imageboot psynch config_proc_uuid_policy config_coredump pgo config_personas ]
++#  BSD_RELEASE =    [ BSD_BASE ]
++#  BSD_DEV =        [ BSD_BASE config_vnguard ]
++#  BSD_DEBUG =      [ BSD_BASE config_vnguard ]
++#  FILESYS_BASE =   [ devfs fdesc fifo mockfs sweet_hfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_searchfs config_volfs config_appledouble nullfs bindfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
++#  FILESYS_RELEASE= [ FILESYS_BASE ]
++#  FILESYS_DEV =    [ FILESYS_BASE config_iocount_trace ]
++#  FILESYS_DEBUG =  [ FILESYS_BASE config_iocount_trace ]
++#  NFS =            [ nfsserver ]
++#  SKYWALK_BASE =   [ skywalk config_nexus_user_pipe config_nexus_kernel_pipe config_nexus_monitor config_nexus_flowswitch config_nexus_netif ]
++#  SKYWALK_RELEASE = [ SKYWALK_BASE ]
++#  SKYWALK_DEV =    [ SKYWALK_BASE ]
++#  SKYWALK_DEBUG =  [ SKYWALK_BASE ]
++#  NETWORKING =     [ inet bpfilter dummynet traffic_mgt sendfile ah_all_crypto bond vlan gif stf ifnet_input_chk config_mbuf_jumbo if_bridge MULTIPATH if_fake remote_vif ]
++#  NETWORKING_RELEASE = [ NETWORKING ]
++#  NETWORKING_DEV = [ NETWORKING_RELEASE packet_mangler if_headless ]
++#  NETWORKING_DEBUG = [ NETWORKING_DEV ]
++#  VPN =            [ ipsec flow_divert necp content_filter ]
++#  PF =             [ pf pflog ]
++#  MULTIPATH =      [ multipath mptcp ]
++#if SOC_CONFIG_t8020 || SOC_IS_VIRTUALIZED
++#  HIBERNATION =    [ ]
++#else /*!(SOC_CONFIG_t8020 || SOC_IS_VIRTUALIZED)*/
++#  HIBERNATION =    [ ]
++#endif /*SOC_CONFIG_t8020 || SOC_IS_VIRTUALIZED*/
++#  IOKIT_BASE =     [ iokit iokitcpp no_kernel_hid config_sleep iokitstats HIBERNATION ]
++#  IOKIT_RELEASE =  [ IOKIT_BASE ]
++#  IOKIT_DEV =      [ IOKIT_BASE iotracking ]
++#  IOKIT_DEBUG =    [ IOKIT_BASE iotracking ]
++#  LIBKERN_BASE =   [ libkerncpp config_blocks config_kec_fips crypto_sha2 config_img4 ]
++#  LIBKERN_RELEASE =[ LIBKERN_BASE zlib ]
++#  LIBKERN_DEV =    [ LIBKERN_BASE zlib iotracking ]
++#  LIBKERN_DEBUG =  [ LIBKERN_BASE zlib iotracking ]
++#  PERF_DBG_BASE =  [ config_dtrace mach_kdp config_serial_kdp kdp_interactive_debugging config_kdp_coredump_encryption config_pervasive_energy PERFMON_BASE kperf kpc ]
++#  PERF_DBG_RELEASE=[ PERF_DBG_BASE ist_kdebug ]
++#  PERF_DBG_DEV =   [ PERF_DBG_BASE lock_stats zleaks alternate_debugger sched_hygiene_debug config_debug_syscall_rejection config_iotrace ]
++#  PERF_DBG_DEBUG = [ PERF_DBG_BASE lock_stats zleaks alternate_debugger sched_hygiene_debug config_debug_syscall_rejection config_iotrace ]
++#if SOC_IS_VIRTUALIZED
++#  PARAVIRT_BASE =  [ config_pv_ticket ]
++#else
++#  PARAVIRT_BASE =  [ ]
++#endif /*SOC_IS_VIRTUALIZED*/
++#  MACH_BASE =      [ mach config_ecc_logging vc_progress_white importance_inheritance config_atm config_coalitions config_iosched config_sysdiagnose config_telemetry config_mach_bridge_recv_time config_quiesce_counter config_arm_pfz config_user_notification phys_write_acct config_service_port_info config_voucher_deprecated PARAVIRT_BASE config_ledger_interval_max ]
++#  MACH_RELEASE =   [ MACH_BASE ]
++#  MACH_DEV =       [ MACH_BASE config_io_accounting importance_trace ]
++#  MACH_DEBUG =     [ MACH_BASE config_io_accounting importance_trace importance_debug ]
++#  SCHED_BASE =     [ config_sched_traditional config_sched_multiq config_sched_deferred_ast config_clutch config_sched_sfi config_sched_auto_join config_preadopt_tg ]
++#  SCHED_RELEASE =  [ SCHED_BASE ]
++#  SCHED_DEV =      [ SCHED_BASE ]
++#  SCHED_DEBUG =    [ SCHED_BASE config_sched_grrr config_sched_proto ]
++#  VM_BASE =        [ vm_pressure_events memorystatus config_code_decryption encrypted_swap config_deferred_reclaim ]
++#  VM_RELEASE =     [ VM_BASE ]
++#  VM_DEV =         [ VM_BASE dynamic_codesigning pgzalloc ]
++#  VM_DEBUG =       [ VM_BASE dynamic_codesigning pgzalloc ]
++#  VM_KASAN =       [ VM_BASE dynamic_codesigning config_kasan config_ubsan config_kcov config_ksancov kernel_tbi ]
++#  SECURITY =       [ config_macf config_audit kernel_integrity config_csr config_csr_from_dt config_setuid config_kas_info config_secure_bsd_root config_arcade config_supplemental_signatures second_static_trust_cache reslide_shared_cache ]
++#  BASE =           [ PF VPN SECURITY NFS ]
++#  RELEASE =        [ BASE KERNEL_RELEASE BSD_RELEASE FILESYS_RELEASE SKYWALK_RELEASE NETWORKING_RELEASE IOKIT_RELEASE LIBKERN_RELEASE    PERF_DBG_RELEASE MACH_RELEASE SCHED_RELEASE VM_RELEASE ]
++#  DEVELOPMENT =    [ BASE KERNEL_DEV     BSD_DEV     FILESYS_DEV     SKYWALK_DEV     NETWORKING_DEV     IOKIT_DEV     LIBKERN_DEV        PERF_DBG_DEV     MACH_DEV     SCHED_DEV     VM_DEV     ]
++#  DEBUG =          [ BASE KERNEL_DEBUG   BSD_DEBUG   FILESYS_DEBUG   SKYWALK_DEBUG   NETWORKING_DEBUG   IOKIT_DEBUG   LIBKERN_DEBUG      PERF_DBG_DEBUG   MACH_DEBUG   SCHED_DEBUG   VM_DEBUG   ]
++#  KASAN =          [ BASE KERNEL_DEV     BSD_DEV     FILESYS_DEV     SKYWALK_DEV     NETWORKING_DEV     IOKIT_DEV     LIBKERN_DEV        PERF_DBG_DEV     MACH_DEV     SCHED_DEV     VM_KASAN   ]
++#
++######################################################################
++#
++machine		"arm64"						# <arm64>
++
++makeoptions	OSFMK_MACHINE = "arm64"				# <mach>
++
++options		COUNT_SYSCALLS		# count bsd system calls 	# <countcalls>
++options     TRASH_VFP_ON_SAVE   # <debug,trash_vfp>
++options		ALTERNATE_DEBUGGER	# <alternate_debugger>
++
++options   CONFIG_VNODES=1024		# <xsmall>
++
++options   CONFIG_FREEZE_SUSPENDED_MIN=4		# <xsmall>
++
++options	  CONFIG_MACH_APPROXIMATE_TIME
++
++options   CONFIG_KERNEL_INTEGRITY		# <kernel_integrity>
++
++options CONFIG_MACF_LAZY_VNODE_LABELS   # Turn on labels, don't preallocate
++
++options CONFIG_HYPERVISOR_PUBLIC   # unrestricted entitlement for hypervisor
++
++options   CONFIG_RESLIDE_SHARED_CACHE		# <reslide_shared_cache>
++options   CONFIG_KERNEL_TBI		# <kernel_tbi>
+diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
+index 7a7cf4d..3506534 100644
+--- a/makedefs/MakeInc.def
++++ b/makedefs/MakeInc.def
+@@ -29,7 +29,7 @@ SUPPORTED_ARM64_MACHINE_CONFIGS = NONE
+ else ifneq ($(findstring _host,$(RC_ProjectName)),)
+ SUPPORTED_ARM64_MACHINE_CONFIGS = NONE
+ else
+-SUPPORTED_ARM64_MACHINE_CONFIGS = BCM2837 T6000 T8101 T8103 VMAPPLE SWEET
++SUPPORTED_ARM64_MACHINE_CONFIGS = BCM2837 T6000 T8101 T8103 VMAPPLE SWEET FUXI
+ 
+ endif
+ 
+@@ -64,6 +64,13 @@ MACHINE_FLAGS_ARM64_BCM2837 = -DARM64_BOARD_CONFIG_BCM2837
+ # topaz: Cortex-A53/A73 are ARMv8.0 (no LSE atomics, RCpc, PAN or FP16). An explicit
+ # -mcpu: -arch arm64 otherwise keeps clang's apple-m1 default and its LSE/RCpc features
+ MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_SWEET                -mcpu=cortex-a53
++# fuxi (SM8550 kalama): ARMv9 (X3/A715/A710/A510) with LSE, RCpc and PAN.
++# No -mcpu override: clang's -arch arm64 apple-m1 default already targets an
++# LSE/PAN-capable core, which is what SM8550 is (topaz needed -mcpu=cortex-a53
++# only because Kryo 260 is ARMv8.0). -DARM64_BOARD_CONFIG_SWEET keeps the
++# inherited sweet driver stack compiled in; drop it once that stack is
++# re-gated on FUXI (see MACHINE_CONFIG_FUXI.md).
++MACHINE_FLAGS_ARM64_FUXI = -DARM64_BOARD_CONFIG_FUXI -DARM64_BOARD_CONFIG_SWEET -march=armv8.2-a+crypto
+ 
+ 
+ #
+@@ -262,8 +269,9 @@ ifeq ($(ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG),)
+ # Without embdedded device map, use a default arch string
+ export ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG := $(shell echo $(CURRENT_ARCH_CONFIG) | tr A-Z a-z)
+ ifneq ($(filter arm64,$(ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG)),)
+-# sweet's Cortex-A76/A55 have no pointer authentication: stay plain arm64
+-ifneq ($(CURRENT_MACHINE_CONFIG),SWEET)
++# sweet's Cortex-A76/A55 and fuxi's X3/A7xx have no pointer authentication:
++# stay plain arm64 (FUXI reuses the sweet stack; see pexpert/arm64/FUXI.h)
++ifeq ($(filter $(CURRENT_MACHINE_CONFIG),SWEET FUXI),)
+ export ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG := arm64e
+ endif
+ endif
+diff --git a/pexpert/pexpert/arm64/FUXI.h b/pexpert/pexpert/arm64/FUXI.h
+new file mode 100644
+index 0000000..a589227
+--- /dev/null
++++ b/pexpert/pexpert/arm64/FUXI.h
+@@ -0,0 +1,124 @@
++/*
++ * Board config for the Xiaomi 13 ("fuxi", Qualcomm SM8550 / Snapdragon 8 Gen 2,
++ * "kalama"): 8 cores - 1x Cortex-X3 + 2x Cortex-A715 + 2x Cortex-A710 +
++ * 3x Cortex-A510 - ARMv9-A with LSE atomics, RCpc and PAN.
++ *
++ * Same family as SWEET/BCM2837 (generic ARM: none of Apple's
++ * implementation-defined system registers), 16K pages and GICv3. Unlike the
++ * Apple SoCs the GIC has two security states (GICD_TYPER SecurityExtn=1):
++ * Group 0 belongs to TrustZone, so every interrupt, including the timer, is a
++ * Group 1 IRQ taken through sleh_irq().
++ *
++ * Differences from sweet (SM7150) that matter here:
++ *   - ARMv9: LSE, RCpc and PAN are present, so there is no -mcpu=cortex-a53 and
++ *     no userland LSE/LDAPR emulation (those exist only for topaz's ARMv8.0
++ *     Kryo 260). __ARM_PAN_AVAILABLE__ stays on.
++ *   - All 8 cores can run XNU (every core has the 16K granule): no
++ *     "park the Silver cores, boot on Gold only" hand-off.
++ *   - GICv3 + ITS at 0x17140000; redistributor stride is 0x40000 (256 KiB),
++ *     not sweet's 0x20000.
++ *   - The architected-timer PPIs follow the standard 13/14/11/10 numbering
++ *     (GIC_PPI in the vendor DT), so the non-secure view of CNTV is INTID 27,
++ *     not sweet's Qualcomm-specific 19.
++ */
++
++#ifndef _PEXPERT_ARM64_FUXI_H
++#define _PEXPERT_ARM64_FUXI_H
++
++#define NO_MONITOR                1
++#define NO_ECORE                  1
++
++/*
++ * fuxi inherits the sweet (SM7150) bring-up: the Qualcomm driver stack added
++ * by the 0003-0093 patch series (sweet_ufs, AppleKeyStore, IOSurface/IOMFB,
++ * IOWatchdog, SweetPlatformExpert/CPU, AMFI, ...) is gated on the sweet board
++ * macros. Keep both defined so those drivers build into the FUXI kernel.
++ *
++ *   FUXI  - the SM8550 board; new/retargeted code should gate on this.
++ *   SWEET - the inherited bring-up family (kept for the existing drivers).
++ *           MACHINE_FLAGS_ARM64_FUXI also passes -DARM64_BOARD_CONFIG_SWEET.
++ *
++ * TODO fuxi: split the SoC-independent bring-up out of the SWEET guards, then
++ * gate the SM7150-specific bits (SPMI/GENI SE7/GT9896 addresses, RPMh, the
++ * gauge, ...) on `SWEET && !FUXI` and the SM8550 bits on FUXI. Until then,
++ * code under `#if defined(SWEET)` (e.g. patch 0081's userland LSE emulation)
++ * also compiles into the FUXI kernel; see MACHINE_CONFIG_FUXI.md.
++ */
++#define FUXI                      1
++#define SWEET                     1
++
++#define ARM_ARCH_TIMER
++/* TODO fuxi: SM8550 is ARMv9-A; this is XNU's internal version macro and is
++ * left at sweet's value until the arm64 arch-version plumbing is reviewed. */
++#define __ARM_ARCH__              8
++#define __ARM_VMSA__              8
++#define __ARM_VFP__               4
++#define __ARM_COHERENT_CACHE__    1
++#define __ARM_DEBUG__             7
++#define __ARM_ENABLE_SWAP__       1
++#define __ARM_V8_CRYPTO_EXTENSIONS__ 1
++/* fuxi: Cortex-X3/A715/A710/A510 are ARMv9-A -> PAN is present. (The sweet
++ * port's topaz retarget dropped this only because Kryo 260 is ARMv8.0.) */
++#define __ARM_PAN_AVAILABLE__     1
++#define __ARM_16K_PG__            1
++
++#define HAS_GIC_V3                1
++
++#ifndef ASSEMBLER
++#define PLATFORM_PANIC_LOG_DISABLED
++#endif /* ! ASSEMBLER */
++
++/*
++ * fuxi's architected timer uses the standard PPI numbering (GIC_PPI 13/14/11/
++ * 10 in the vendor DT), so in the non-secure GIC view the virtual timer XNU
++ * uses (CNTV) is INTID 16 + 11 = 27 and the physical timer is 16 + 14 = 30.
++ * (sweet used Qualcomm's 1/2/3/0 numbering -> 19.)
++ *
++ * The kernel name SWEET_VTIMER_INTID is kept because the inherited sleh_irq()
++ * and the ADT virtual-timer plumbing reference it; FUXI_VTIMER_INTID is the
++ * same value for new code.
++ *
++ * INFERRED: from the fuxi vendor device tree (via the M1 shim retarget).
++ * TODO fuxi: confirm at runtime against the ADT `gic` node's
++ * `virtual-timer-intid` (patch 0017 reads it from the device tree).
++ */
++#define SWEET_VTIMER_INTID        27
++#define FUXI_VTIMER_INTID         27
++
++/* SGI used for cross-CPU signals. TODO fuxi: confirm (kept from sweet). */
++#define SWEET_IPI_SGI             1
++#define FUXI_IPI_SGI              1
++
++#define GIC_SPURIOUS_IRQ          1023    // IRQ no. for GIC spurious interrupt
++
++/* fuxi GICR stride is 256 KiB (8 redistributors, 0x17180000..0x17340000),
++ * not sweet's 128 KiB. VERIFIED: fuxi /proc/device-tree + /proc/iomem. */
++#define GICR_PE_SIZE              0x40000 // Size of each redistributor region
++
++/* GICv3 register definitions; see GICv3 spec (Arm IHI 0069G) */
++#define GICD_CTLR                 0x0
++
++/* Non-secure view of GICD_CTLR (DS=0) */
++#define GICD_CTLR_ENABLEGRP1      0x1
++#define GICD_CTLR_ENABLEGRP1A     0x2
++#define GICD_CTLR_ARE_NS          0x10
++#define GICD_CTLR_RWP             0x80000000
++
++#define GICR_TYPER                              0x08
++#define GICR_WAKER                              0x14
++#define GICR_IGROUPR0                           0x10080
++#define GICR_ISENABLER0                         0x10100
++#define GICR_IPRIORITYR0                        0x10400
++
++#define GICR_TYPER_AFFINITY_VALUE_SHIFT         32
++#define GICR_TYPER_LAST                         0x10
++
++#define GICR_WAKER_PROCESSORSLEEP               0x2
++#define GICR_WAKER_CHILDRENASLEEP               0x4
++
++#define ICC_CTLR_EOIMODE                        0x2
++
++#define ICC_SRE_SRE                             0x1
++/* End of GICv3 register definitions */
++
++#endif /* ! _PEXPERT_ARM64_FUXI_H */
+diff --git a/pexpert/pexpert/arm64/Makefile b/pexpert/pexpert/arm64/Makefile
+index c7d274f..bb70802 100644
+--- a/pexpert/pexpert/arm64/Makefile
++++ b/pexpert/pexpert/arm64/Makefile
+@@ -18,7 +18,8 @@ PRIVATE_KERNELFILES = \
+ 	H13.h \
+ 	VMAPPLE.h \
+ 	BCM2837.h \
+-	SWEET.h
++	SWEET.h \
++	FUXI.h
+ 
+ 
+ # Headers installed into System.framework/PrivateHeaders (userspace internal SDK only).
+diff --git a/pexpert/pexpert/arm64/board_config.h b/pexpert/pexpert/arm64/board_config.h
+index 88e524a..cf84e47 100644
+--- a/pexpert/pexpert/arm64/board_config.h
++++ b/pexpert/pexpert/arm64/board_config.h
+@@ -97,7 +97,7 @@
+ #define CORE_NCTRS                     8 /* Placeholder; KPC is not enabled for this target */
+ #endif  /* ARM64_BOARD_CONFIG_BCM2837 */
+ 
+-#ifdef ARM64_BOARD_CONFIG_SWEET
++#if defined(ARM64_BOARD_CONFIG_SWEET) && !defined(ARM64_BOARD_CONFIG_FUXI)
+ #include <pexpert/arm64/SWEET.h>
+ 
+ #define MAX_L2_CLINE                   6
+@@ -108,6 +108,21 @@
+ 
+ #endif  /* ARM64_BOARD_CONFIG_SWEET */
+ 
++#ifdef ARM64_BOARD_CONFIG_FUXI
++#include <pexpert/arm64/FUXI.h>
++
++#define MAX_L2_CLINE                   6
++#define MAX_CPUS                       8
++/* fuxi's ADT gives every core its own MPIDR Aff1 (0x000..0x700) -> 8
++ * clusters. sweet/topaz used 1 because they booted the gold cluster only.
++ * TODO fuxi: confirm against the final tools/mkadt.py topology; this must be
++ * >= the cluster count ml_parse_cpu_topology() sees or it panics. */
++#define MAX_CPU_CLUSTERS               8
++
++#define CORE_NCTRS                     8 /* Placeholder; KPC is not enabled for this target */
++
++#endif  /* ARM64_BOARD_CONFIG_FUXI */
++
+ #ifdef ARM64_BOARD_CONFIG_VMAPPLE
+ #include <pexpert/arm64/VMAPPLE.h>
+ 
