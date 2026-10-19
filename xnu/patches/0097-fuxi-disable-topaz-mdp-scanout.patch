@@ -1,0 +1,33 @@
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -202,6 +202,22 @@
+ 		IOLog("SWEET FB: no vsync timer\n");
+ 		return false;
+ 	}
++#ifndef ARM64_BOARD_CONFIG_FUXI
++	/*
++	 * topaz direct MDP scanout: VIG0 0x05e05000 / CTL0 0x05e02000.
++	 *
++	 * fuxi is a different display generation -- MDSS 0xae00000, MDP/DPU core
++	 * 0xae01000, DSI0 0xae94000 (device-dumps/SM8550_FACTS.md 6) -- and reading
++	 * topaz's VIG0+0x14 (phys 0x05e05014) aborts the bus (ESR 0x96000010,
++	 * DFSC 0x10), which panics in AppleCLCD::start before the driver registers:
++	 *
++	 *   panic: Kernel data abort. at pc 0xfffffe0007a6adac
++	 *          <AppleCLCD::start +0x260>   ldr w9, [x8, #0x14]
++	 *
++	 * Retargeting the MDP/DSI pipeline is its own milestone.  The console is
++	 * unaffected: the ADT's sweet-fbcon (splash 0xb8000000) is what renders our
++	 * output and does not go through VIG0/CTL0.
++	 */
+ 	fVig0 = (volatile uint32_t *)ml_io_map(0x05e05000, 0x1000);
+ 	fCtl0 = (volatile uint32_t *)ml_io_map(0x05e02000, 0x1000);
+ 	if (fVig0 != NULL && fCtl0 != NULL) {
+@@ -213,6 +229,7 @@
+ 		    fBootSrc, fBootStride);
+ 		sweet_scanout_set_geometry(fWidth, fHeight, fLogicalW, fLogicalH);
+ 	}
++#endif
+ 	uint32_t hz = 10;
+ 	PE_parse_boot_argn("sweetfb_hz", &hz, sizeof(hz));
+ 	fFlushTicks = (hz == 0 || hz >= 60) ? 1 : 60 / hz;
