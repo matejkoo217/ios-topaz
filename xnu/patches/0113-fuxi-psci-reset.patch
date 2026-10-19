@@ -1,0 +1,71 @@
+fuxi: 0113 -- reset with PSCI SYSTEM_RESET, because PEHaltRestart times out here
+
+Answering "restart: resetting" and then panicking is not a restart:
+
+  panic(cpu 6 caller 0xffffffe00070639a8): Halt/Restart Timed Out
+    @pexpert/arm/armPlatformExpert.cpp:884
+
+kPERestartCPU runs armPlatformExpert's halt/restart path, which on fuxi never
+completes -- like the GCC clocks and the AKS seal, the Apple platform expert has
+nothing behind it on this board.  What does exist is PSCI: SYSTEM_RESET
+(0x84000009) is an SMC to EL3 where ABL's implementation lives, the same request
+an Android reboot makes at the bottom.
+
+The command now issues that SMC directly.  If it ever returns (it should not), the
+value is printed and the kernel panics rather than pretending the phone reset.
+
+Harness: applied=112 skipped=0.
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -392,10 +392,29 @@
+ #define FUXI_CMD_ETHERTYPE      0x88b5
+ #define FUXI_CMD_FRAME_MAX      (ETHER_MAX_LEN - ETHER_HDR_LEN - ETHER_CRC_LEN)
+ 
+-/* osfmk/kern/debug.c gets these from IOKit/IOPlatformExpert.h, which bsd/dev
+- * does not see (exported headers only), so declare what is used here. */
+-extern int PEHaltRestart(unsigned int type);
+-#define FUXI_PE_RESTART_CPU 1   /* kPERestartCPU in that enum */
++/*
++ * Resetting the SoC.  PEHaltRestart(kPERestartCPU) -- what panic() uses -- runs
++ * armPlatformExpert's halt/restart path and, on fuxi, that times out:
++ *
++ *   panic(cpu 6 caller ...): Halt/Restart Timed Out
++ *     @pexpert/arm/armPlatformExpert.cpp:884
++ *
++ * so the phone answers "restart: resetting" and then panics instead of resetting.
++ * Nothing in that path is reachable from here; PSCI is.  SYSTEM_RESET
++ * (0x84000009) is an SMC to EL3, where ABL's PSCI implementation sits, and it is
++ * the request a normal Android reboot makes at the bottom.
++ */
++#define FUXI_PSCI_SYSTEM_RESET  0x84000009ULL
++
++static void
++fuxi_soc_reset(void)
++{
++	register uint64_t x0 __asm__("x0") = FUXI_PSCI_SYSTEM_RESET;
++
++	__asm__ volatile ("smc #0" : "+r" (x0) :: "x1", "x2", "x3", "memory");
++	printf("FUXI CMD: PSCI SYSTEM_RESET returned 0x%llx; falling back\n", x0);
++	panic("fuxi: PSCI SYSTEM_RESET did not reset the SoC");
++}
+ 
+ static errno_t ud_if_output(ifnet_t ifp, mbuf_t m);
+ extern uint32_t fuxi_cpu_khz(void);                     /* fuxi_sample.c */
+@@ -449,7 +468,7 @@
+ 		 */
+ 		ud_cmd_send("restart: resetting\n", 20);
+ 		ud_sleep_ms(50);                /* let the frame leave first */
+-		PEHaltRestart(FUXI_PE_RESTART_CPU);
++		fuxi_soc_reset();
+ 		return;
+ 	}
+ 	if (len == 4 && strncmp(line, "help", 4) == 0) {
+@@ -955,7 +974,7 @@
+ 		ud_cmd_reply(so, "restart: resetting\n");
+ 		printf("FUXI CMD: restart requested over usb\n");
+ 		ud_sleep_ms(50);                /* let the datagram leave first */
+-		PEHaltRestart(FUXI_PE_RESTART_CPU);
++		fuxi_soc_reset();
+ 		return;
+ 	}
+ 	if (strncmp(line, "help", 4) == 0) {
