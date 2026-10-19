@@ -1,0 +1,111 @@
+fuxi: retarget the inherited driver bases from topaz to fuxi
+
+The touch, keys and USB drivers still carry SM6225 (topaz) MMIO bases.  Three
+of them were being worked around at boot (sweettouch=0 / sweetkeys=0), which
+means the hardware is gated off rather than driven correctly.
+
+Every base below comes from the live fuxi device dump (device-dumps/iomem.txt)
+or from the verified DT extracts in device-dumps/SM8550_FACTS.md -- none are
+inferred.  The topaz values are preserved under #else so the same source still
+builds for the board it was written for.
+
+  touch  SE   0x04a88000 -> 0x00a90000   qupv3_se4_spi (GIC_SPI 357)
+         GCC  0x01400000 -> 0x00100000   100000.clock-controller
+         TLMM 0x00500000/0x00d00000 -> 0x0f000000  one block, no tiling
+  keys   SPMI 0x01c40000 -> 0x0c42d000   spmi-0 cnfg
+         OBS  0x03e00000 -> 0x0c4c0000   spmi-0 intr
+         PON  0x0810     -> 0x1300       PMK8550 pon_hlos@1300
+  usb    QUSB2 0x088e2000 -> 0x088e3000  eusb2_phy_base
+         (GCC 0x00100000 and DWC3 0x0a600000 already match fuxi: iomem.txt:22,19)
+
+Deliberately NOT claimed: the register layouts.  SM8550's QUPv3 wrapper/RCG
+offsets and the SPMI arbiter core/observer offsets are not yet established, so
+those constants keep the SM6225 values with a TODO.  Address-correct is not the
+same as layout-correct -- do not re-enable sweettouch/sweetkeys on fuxi on the
+strength of this patch alone.
+
+diff --git a/bsd/dev/sweet_touch.c b/bsd/dev/sweet_touch.c
+--- a/bsd/dev/sweet_touch.c
++++ b/bsd/dev/sweet_touch.c
+@@ -24,10 +24,29 @@
+ extern void sweet_hid_touch(int finger, int down, int x, int y);
+ void sweet_touch_init(void);
+ 
++#if defined(ARM64_BOARD_CONFIG_FUXI)
++/*
++ * fuxi (SM8550): FocalTech on qupv3_se4_spi.  Every base below is taken from
++ * the LIVE device dump, not inferred:
++ *   SE   0x00a90000  qupv3_se4_spi, GIC_SPI 357   SM8550_FACTS.md:320,334
++ *   GCC  0x00100000  100000.clock-controller      device-dumps/iomem.txt:1
++ *   TLMM 0x0f000000  f000000.pinctrl              device-dumps/iomem.txt:40
++ * SM8550 has ONE TLMM block, not the WEST/EAST tiling of SM6225, so both
++ * tile bases point at the same window and the GPIO number selects the pin.
++ * TOUCH_GCC_VOTE / TOUCH_RCG below are still the SM6225 offsets -- the
++ * QUPv3 wrapper vote and SE4 RCG offsets on SM8550 are NOT yet established,
++ * so do not enable sweettouch on fuxi until they are.
++ */
++#define TOUCH_SE_PA      0x00a90000u /* qupv3_se4_spi */
++#define TOUCH_GCC_PA     0x00100000u /* 100000.clock-controller */
++#define TOUCH_WEST_PA    0x0f000000u /* TLMM (single block on SM8550) */
++#define TOUCH_EAST_PA    0x0f000000u /* same block; GPIO selects the pin */
++#else
+ #define TOUCH_SE_PA      0x04a88000u /* QUP0 SE2 */
+ #define TOUCH_GCC_PA     0x01400000u
+ #define TOUCH_WEST_PA    0x00500000u /* TLMM 0x400000 + WEST tile: GPIO 6/7/80/86 */
+ #define TOUCH_EAST_PA    0x00d00000u /* TLMM 0x400000 + EAST tile: GPIO 36 */
++#endif
+ #define TOUCH_GCC_VOTE   0x7900cu    /* QUP0 wrapper + SE2 vote, bits 0x13c0 */
+ #define TOUCH_RCG       0x1f3a8u    /* QUP0 S2 CMD; CFG +4, CBCR -4 (gcc-khaje.c) */
+ #define TOUCH_PIN_RESET  86u
+
+diff --git a/bsd/dev/sweet_keys.c b/bsd/dev/sweet_keys.c
+--- a/bsd/dev/sweet_keys.c
++++ b/bsd/dev/sweet_keys.c
+@@ -17,6 +17,23 @@
+ extern void sweet_hid_key(int key, int down);
+ void sweet_keys_init(void);
+ 
++#if defined(ARM64_BOARD_CONFIG_FUXI)
++/*
++ * fuxi (SM8550): SPMI-0 lives at 0x0c42d000 (cnfg) / 0x0c4c0000 (intr) per
++ * device-dumps/iomem.txt:36,38, and the PMIC is PMK8550 at SPMI USID 0 with
++ * its PON at pon_hlos@1300 (SM8550_FACTS.md:442-458).
++ * NOTE: CORE (SPMI arbiter core) and OBS (observer channel) sub-block
++ * offsets on SM8550 are not yet established -- cfg/intr are used as the
++ * closest verified anchors, so treat KEYS as address-correct but
++ * register-layout-unproven until a Vol+/Power read is seen working.
++ */
++#define KEYS_CORE_PA     0x0c42d000u /* spmi-0 cnfg */
++#define KEYS_OBS_PA      0x0c4c0000u /* spmi-0 intr */
++#define KEYS_CNFG_PA     0x0c42d000u /* spmi-0 cnfg */
++#define KEYS_PON_RT      0x1300u     /* PMK8550 pon_hlos@1300 (not 0x810) */
++#define KEYS_GPIO_RT     0xc410u     /* PM8550 GPIO block; Vol+ is GPIO 6 */
++#define KEYS_NO_APID     0xffffu
++#else
+ /* topaz (SM6225, sm6125.dtsi spmi_bus; PM6125 USID 0): PON 0x800, Vol+ = GPIO5 */
+ #define KEYS_CORE_PA     0x01c40000u
+ #define KEYS_OBS_PA      0x03e00000u
+@@ -24,6 +41,7 @@
+ #define KEYS_PON_RT      0x0810u
+ #define KEYS_GPIO_RT     0xc410u
+ #define KEYS_NO_APID     0xffffu
++#endif
+ 
+ static vm_offset_t keys_core, keys_obs, keys_cnfg;
+ static uint16_t keys_pon_apid = KEYS_NO_APID, keys_gpio_apid = KEYS_NO_APID;
+
+diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+--- a/bsd/dev/sweet_usb.c
++++ b/bsd/dev/sweet_usb.c
+@@ -59,7 +59,11 @@
+ 
+ #define DWC3_PA                 0x0a600000
+ #define DWC3_SIZE               0x0000d000
++#if defined(ARM64_BOARD_CONFIG_FUXI)
++#define QUSB2_PA                0x088e3000 /* eusb2_phy_base, iomem.txt:20 */
++#else
+ #define QUSB2_PA                0x088e2000
++#endif
+ #define QUSB2_SIZE              0x00000400
+ 
+ static uint32_t
