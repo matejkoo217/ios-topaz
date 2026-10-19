@@ -1,0 +1,55 @@
+fuxi: 0102 -- cut the per-SCSI-command wait, the dominant boot cost
+
+Rebased from fuxi-ufs-fast 0100, which was written against the pre-rename UFS
+driver file.  Content is unchanged; only the path and the naming are fuxi now.
+It is numbered 0102 because 0100/0101 in this branch are the UFS-less
+fuxi-offsets and SM7150-board-retirement stages.
+
+The UFS root driver issues polled SCSI commands one at a time behind a single
+mutex, and between polls it waited:
+
+  #define CMD_SPIN_NS     (50ull * NSEC_PER_USEC)
+  #define CMD_SLEEP_NS   (200ull * NSEC_PER_USEC)
+
+Measured against the boot: the dyld shared cache is 3.3 GB and the VFS reads it
+in 4 KiB blocks, so a cold boot is order 800k commands.  At 200 us of sleep per
+command that is ~160 s of pure sleep before a single byte is transferred, and the
+whole boot was observed at roughly ten minutes with logging on.  UFS answers a
+small read in tens of microseconds, so the sleep was not covering real latency.
+
+Spin for 5 us, then sleep 20 us.  CMD_TIMEOUT_NS is untouched, so a genuinely
+stuck command still fails the same way; this only shortens the polling budget.
+
+Pair this with the runtime knobs already proven on hardware: ufscache=1 (use
+clean_dcache64 rather than a full dma_sync per command) and ufswait=0 (spin
+rather than sleep) -- both are opt-in and default to the slow path.
+
+Not addressed here: the driver is still polled (REG_IE=0) and serialised by
+fuxi_ufs_lock, so it remains one command in flight.  Interrupts plus a command
+queue is the real architectural fix and stays a separate milestone; 0103 takes
+the parallelism half of it.
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
+@@ -74,8 +74,20 @@
+ #define PRDT_CHUNK      (256u << 10)            /* PRDT byte count field: 18 bits */
+ #define PRDT_MAX        (BOUNCE_SIZE / PRDT_CHUNK)
+ #define CMD_TIMEOUT_NS  (5ull * NSEC_PER_SEC)
+-#define CMD_SPIN_NS     (50ull * NSEC_PER_USEC)
+-#define CMD_SLEEP_NS    (200ull * NSEC_PER_USEC)
++/*
++ * Per-command wait budget.  These were sized for a first bring-up where a slow
++ * answer was the main risk; in practice UFS completes a small read in tens of
++ * microseconds, so 200us of sleep per command dominated everything.  Loading
++ * the 3.3 GB dyld shared cache at 4 KiB per command is ~800k commands, i.e.
++ * ~160 s of *pure sleep* before any transfer time -- which is most of the
++ * multi-minute boot.
++ *
++ * Spin for a short window first (a doorbell completion is usually immediate and
++ * the poll is just a cached MMIO read), then sleep briefly instead of for 200us.
++ * CMD_TIMEOUT_NS still bounds a genuinely stuck command.
++ */
++#define CMD_SPIN_NS     (5ull * NSEC_PER_USEC)
++#define CMD_SLEEP_NS    (20ull * NSEC_PER_USEC)
+ 
+ struct utrd {
+ 	uint32_t dw0, dw1, dw2, dw3;
