@@ -1,0 +1,154 @@
+fuxi: 0106 -- command channel over the USB link (logs already go to 5140)
+
+0077 streams the console to the host as UDP 192.168.7.1:5140, so the log half
+already existed and this adds only the missing direction: the phone could talk,
+the host could not answer.
+
+No UDP socket for this.  The receive path is the USB endpoint itself: a frame
+with ethertype 0x88B5 is claimed in ud_rx_done before the ethernet stack sees
+it, parsed as one text command, and answered with a frame built through the same
+TX queue as any other traffic.  One file, ~90 lines, no in-kernel UDP server and
+no deprecated socket KPI, and it works as soon as the link enumerates -- before
+IP, before ARP.
+
+Commands: help | stat | cpu | echo <text>
+  stat  ue0 state, rx/tx frame counts, event count
+  cpu   current core and measured clock (PMCCNTR, from 0105)
+
+Nothing in this path prints: printf would feed the 5140 stream back into itself.
+
+fuxi_cpu_khz() (0105) loses its static linkage here so the command handler can
+call it -- without that the kernel does not link ("_fuxi_cpu_khz referenced from
+_ud_thread").
+
+Host side: tools/fuxi-netlog.py listens on UDP 5140 for the console and sends
+commands as 0x88B5 frames, so one tool covers both directions.
+
+Harness: applied=105 skipped=0; patch -p1 --dry-run clean on the post-0105 tree.
+--- a/bsd/dev/fuxi_sample.c
++++ b/bsd/dev/fuxi_sample.c
+@@ -74,7 +74,7 @@
+ 	return v;
+ }
+ 
+-static uint32_t
++uint32_t
+ fuxi_cpu_khz(void)
+ {
+ 	uint64_t pmcr, cntfrq, c0, c1, t0, t1;
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -355,6 +355,93 @@
+ 	NULL, "ios-fuxi", "Fuxi iOS (USB Ethernet)", "0001", "02005E77EE01",
+ };
+ static const uint8_t ud_phone_mac[ETHER_ADDR_LEN] = { 0x02, 0x00, 0x5e, 0x77, 0xee, 0x02 };
++static const uint8_t ud_host_mac[ETHER_ADDR_LEN]  = { 0x02, 0x00, 0x5e, 0x77, 0xee, 0x01 };
++
++/*
++ * Command channel.  The console already streams to the host as UDP :5140
++ * (ud_log_thread below); this adds the missing direction.  It rides its own
++ * ethertype rather than a UDP socket so the receive path is the USB endpoint
++ * itself -- no in-kernel UDP server, no deprecated socket KPI -- and it works
++ * the moment the link enumerates, before IP or ARP exist.
++ *
++ *   help | stat | cpu | echo <text>
++ *
++ * Nothing here prints: reply bytes go out as frames, and a printf would feed the
++ * log stream back into itself.
++ */
++#define FUXI_CMD_ETHERTYPE      0x88b5
++#define FUXI_CMD_FRAME_MAX      (ETHER_MAX_LEN - ETHER_HDR_LEN - ETHER_CRC_LEN)
++
++static errno_t ud_if_output(ifnet_t ifp, mbuf_t m);
++extern uint32_t fuxi_cpu_khz(void);                     /* fuxi_sample.c */
++extern unsigned int ml_get_cpu_number_local(void);      /* osfmk/arm */
++
++static void
++ud_cmd_send(const char *buf, size_t len)
++{
++	struct ether_header *eh;
++	mbuf_t m = NULL;
++
++	if (ud.ifp == NULL || !ud.configured || len == 0 || len > FUXI_CMD_FRAME_MAX) {
++		return;
++	}
++	if (mbuf_gethdr(MBUF_DONTWAIT, MBUF_TYPE_DATA, &m) != 0) {
++		return;
++	}
++	if (mbuf_mclget(MBUF_DONTWAIT, MBUF_TYPE_DATA, &m) != 0) {
++		mbuf_freem(m);
++		return;
++	}
++	eh = (struct ether_header *)mbuf_data(m);
++	memcpy(eh->ether_dhost, ud_host_mac, ETHER_ADDR_LEN);
++	memcpy(eh->ether_shost, ud_phone_mac, ETHER_ADDR_LEN);
++	eh->ether_type = htons(FUXI_CMD_ETHERTYPE);
++	memcpy((char *)mbuf_data(m) + ETHER_HDR_LEN, buf, len);
++	mbuf_setlen(m, ETHER_HDR_LEN + len);
++	mbuf_pkthdr_setlen(m, ETHER_HDR_LEN + len);
++	(void)ud_if_output(ud.ifp, m);
++}
++
++static void
++ud_cmd(const char *line)
++{
++	char reply[192];
++	size_t len = strlen(line);
++	int n;
++
++	while (len > 0 && (line[len - 1] == '\r' || line[len - 1] == '\n')) {
++		len--;
++	}
++	if (len == 0) {
++		return;
++	}
++	if (len == 4 && strncmp(line, "help", 4) == 0) {
++		n = snprintf(reply, sizeof(reply),
++		    "fuxi: stat | cpu | echo <text> | help  (console: udp 5140)\n");
++	} else if (len == 4 && strncmp(line, "stat", 4) == 0) {
++		n = snprintf(reply, sizeof(reply),
++		    "usb: ue0 %s, rx %llu tx %llu frames, %llu events\n",
++		    ud.configured ? "up" : "down", ud.rx_frames, ud.tx_frames, ud.events);
++	} else if (len == 3 && strncmp(line, "cpu", 3) == 0) {
++		uint32_t khz = fuxi_cpu_khz();
++		if (khz) {
++			n = snprintf(reply, sizeof(reply), "cpu: cpu%u %u.%03u MHz\n",
++			    ml_get_cpu_number_local(), khz / 1000, khz % 1000);
++		} else {
++			n = snprintf(reply, sizeof(reply),
++			    "cpu: cpu%u clock unreadable (PMCCNTR off)\n",
++			    ml_get_cpu_number_local());
++		}
++	} else if (len > 5 && strncmp(line, "echo ", 5) == 0) {
++		int m = snprintf(reply, sizeof(reply), "echo: %.*s\n", (int)(len - 5), line + 5);
++		n = m;
++	} else {
++		n = snprintf(reply, sizeof(reply), "?: %.*s (try help)\n", (int)len, line);
++	}
++	if (n > 0) {
++		ud_cmd_send(reply, (size_t)MIN(n, (int)sizeof(reply) - 1));
++	}
++}
+ 
+ static uint32_t
+ ud_string(unsigned idx, uint8_t *out)
+@@ -501,6 +588,19 @@
+ 	ud_sync(UD_TRB_RX, 16);
+ 	uint32_t len = UD_FRAME_MAX - (t[2] & 0xffffff);
+ 	ud_sync(UD_RX, UD_FRAME_MAX);
++	if (ud.ifp != NULL && len >= ETHER_HDR_LEN + 1) {
++		const struct ether_header *eh =
++		    (const struct ether_header *)(ud.dma + UD_RX);
++		if (eh->ether_type == htons(FUXI_CMD_ETHERTYPE)) {
++			char cmd[192];
++			size_t n = MIN((size_t)(len - ETHER_HDR_LEN), sizeof(cmd) - 1);
++			memcpy(cmd, (const void *)(ud.dma + UD_RX) + ETHER_HDR_LEN, n);
++			cmd[n] = '\0';
++			ud_cmd(cmd);
++			ud_rx_arm();
++			return;
++		}
++	}
+ 	if (ud.ifp != NULL && len >= ETHER_HDR_LEN && len <= ETHER_MAX_LEN) {
+ 		/*
+ 		 * One mbuf with a 2 KiB cluster holds any frame. (mbuf_allocpacket
