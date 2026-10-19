@@ -1,0 +1,249 @@
+fuxi: 0114 -- look at the screen: kernel-side framebuffer capture over USB
+
+Every claim about the display so far has been a photo held up to a camera, and a
+boot that died at the progress bar looks exactly like one that finished. The
+console already maps the panel (pe_serial.c probes the "sweet-fbcon" node for
+reg/width/height/stride), so the kernel can just read it.
+
+  fb [scale]   decimate by scale (default 4), send the frame to 192.168.7.1:5142
+               as "FUXIFB1" + frame/chunk/chunks/width/height/scale/payload and
+               RGB triplets, ~1.4 KB per datagram.
+
+pexpert grows fuxi_fbcon_info() because the SecureDT APIs the probe uses are not
+exported to bsd/dev. tools/fuxi-fb.py reassembles a frame and writes PNG (PIL when
+present) and always a PPM, so the check needs no dependency.
+
+At scale 4 a 1080x2400 panel is 270x600 -- 486 KB, about a thousand datagrams --
+which is small enough to pull on demand and large enough to read the progress bar
+and the console text.
+
+Harness: applied=113 skipped=0.
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -719,6 +719,7 @@
+ 
+ static volatile uint32_t *fbcon_base;
+ static uint32_t fbcon_width, fbcon_height, fbcon_stride;
++static uint64_t fbcon_pa, fbcon_len;
+ static uint32_t fbcon_cols, fbcon_rows, fbcon_col, fbcon_row;
+ 
+ static void
+@@ -810,6 +811,25 @@
+ 	.device = SERIAL_FUXI_FBCON
+ };
+ 
++/*
++ * Framebuffer geometry for callers outside pexpert.  The serial console already
++ * probes the "sweet-fbcon" node for reg/width/height/stride; expose what it found
++ * rather than re-parsing the device tree from bsd/dev, which cannot see SecureDT.
++ */
++bool
++fuxi_fbcon_info(uint64_t *pa, uint64_t *len, uint32_t *w, uint32_t *h, uint32_t *stride)
++{
++	if (fbcon_base == NULL) {
++		return false;
++	}
++	*pa = fbcon_pa;
++	*len = fbcon_len;
++	*w = fbcon_width;
++	*h = fbcon_height;
++	*stride = fbcon_stride;
++	return true;
++}
++
+ static void
+ fbcon_probe(void)
+ {
+@@ -835,6 +855,8 @@
+ 		return;
+ 	}
+ 	fuxi_early_mark(17, "fbcon config read; mapping");
++	fbcon_pa = reg[0];
++	fbcon_len = reg[1];
+ 	fbcon_base = (volatile uint32_t *)ml_io_map_wcomb(reg[0], reg[1]);
+ 	fuxi_early_mark(18, "fbcon mapping returned");
+ 	if (fbcon_base != NULL) {
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -406,6 +406,9 @@
+  */
+ #define FUXI_PSCI_SYSTEM_RESET  0x84000009ULL
+ 
++/* framebuffer grab, defined with the rest of the capture code below */
++static int fuxi_fb_capture(socket_t so, uint32_t scale);
++
+ static void
+ fuxi_soc_reset(void)
+ {
+@@ -473,11 +476,24 @@
+ 	}
+ 	if (len == 4 && strncmp(line, "help", 4) == 0) {
+ 		n = snprintf(reply, sizeof(reply),
+-		    "fuxi: stat | cpu | echo <text> | restart | help  (console: udp 5140)\n");
++		    "fuxi: stat | cpu | fb [scale] | echo <text> | restart | help\n");
+ 	} else if (len == 4 && strncmp(line, "stat", 4) == 0) {
+ 		n = snprintf(reply, sizeof(reply),
+ 		    "usb: ue0 %s, rx %llu tx %llu frames, %llu events\n",
+ 		    ud.configured ? "up" : "down", ud.rx_frames, ud.tx_frames, ud.events);
++	} else if (len >= 2 && strncmp(line, "fb", 2) == 0) {
++		uint32_t scale = 0;
++
++		if (len > 3) {
++			for (char *q = line + 3; *q >= '0' && *q <= '9'; q++) {
++				scale = scale * 10u + (uint32_t)(*q - '0');
++			}
++		}
++		if (fuxi_fb_capture(so, scale) != 0) {
++			ud_cmd_send("fb: no framebuffer\n", 18);
++		} else {
++			ud_cmd_send("fb: sent\n", 9);
++		}
+ 	} else if (len == 3 && strncmp(line, "cpu", 3) == 0) {
+ 		uint32_t khz = fuxi_cpu_khz();
+ 		/* Cluster clocks go to the console stream (readable on 5140). */
+@@ -952,6 +968,145 @@
+ 	(void)sock_send(so, &msg, 0, &sent);
+ }
+ 
++/*
++ * Framebuffer capture: the eyes on this port.
++ *
++ * A boot that stops at the progress bar and a boot that finished look the same
++ * when the only report is a photo.  This reads the panel memory the console
++ * already owns and streams a decimated frame over the same link as the log, so a
++ * claim about the screen can be checked instead of believed.
++ *
++ * Wire format, little endian, UDP to 192.168.7.1:5142:
++ *   "FUXIFB1\0" | frame u32 | chunk u32 | chunks u32 |
++ *   width u32 | height u32 | scale u32 | payload u32 | RGB triplets
++ */
++#define FUXI_FB_PORT    5142u
++#define FUXI_FB_MAGIC   "FUXIFB1"
++#define FUXI_FB_CHUNK   1368            /* payload bytes per datagram */
++#define FUXI_FB_SCALE   4u              /* decimation; 'fb [scale]' overrides */
++
++extern bool fuxi_fbcon_info(uint64_t *pa, uint64_t *len, uint32_t *w, uint32_t *h,
++    uint32_t *stride);
++
++struct fuxi_fb_hdr {
++	char     magic[8];
++	uint32_t frame;
++	uint32_t chunk;
++	uint32_t chunks;
++	uint32_t width;
++	uint32_t height;
++	uint32_t scale;
++	uint32_t payload;
++};
++
++static volatile uint32_t *fuxi_fb_base;
++static uint32_t fuxi_fb_w, fuxi_fb_h, fuxi_fb_stride;
++static uint32_t fuxi_fb_frame;
++static uint8_t fuxi_fb_pkt[sizeof(struct fuxi_fb_hdr) + FUXI_FB_CHUNK];
++
++static bool
++fuxi_fb_map(void)
++{
++	uint64_t pa = 0, len = 0;
++
++	if (fuxi_fb_base != NULL) {
++		return true;
++	}
++	if (!fuxi_fbcon_info(&pa, &len, &fuxi_fb_w, &fuxi_fb_h, &fuxi_fb_stride) ||
++	    fuxi_fb_w == 0 || fuxi_fb_h == 0) {
++		printf("FUXI FB: no framebuffer (sweet-fbcon not probed)\n");
++		return false;
++	}
++	fuxi_fb_base = (volatile uint32_t *)ml_io_map((vm_offset_t)pa, (vm_size_t)len);
++	if (fuxi_fb_base == NULL) {
++		printf("FUXI FB: map failed for 0x%llx\n", pa);
++		return false;
++	}
++	printf("FUXI FB: %ux%u stride %u at 0x%llx\n", fuxi_fb_w, fuxi_fb_h,
++	    fuxi_fb_stride, pa);
++	return true;
++}
++
++static void
++fuxi_fb_send(socket_t so, struct fuxi_fb_hdr *h, uint32_t used, uint32_t index)
++{
++	struct sockaddr_in to;
++	struct iovec iov;
++	struct msghdr msg;
++	size_t sent = 0;
++
++	h->chunk = index;
++	h->payload = used;
++	memcpy(fuxi_fb_pkt, h, sizeof(*h));
++
++	bzero(&to, sizeof(to));
++	to.sin_len = sizeof(to);
++	to.sin_family = AF_INET;
++	to.sin_port = htons(FUXI_FB_PORT);
++	to.sin_addr.s_addr = htonl(FUXI_CMD_PEER);
++
++	iov.iov_base = fuxi_fb_pkt;
++	iov.iov_len = sizeof(*h) + used;
++	bzero(&msg, sizeof(msg));
++	msg.msg_name = &to;
++	msg.msg_namelen = (socklen_t)sizeof(to);
++	msg.msg_iov = &iov;
++	msg.msg_iovlen = 1;
++	(void)sock_send(so, &msg, 0, &sent);
++}
++
++static int
++fuxi_fb_capture(socket_t so, uint32_t scale)
++{
++	struct fuxi_fb_hdr h;
++	uint8_t *payload = fuxi_fb_pkt + sizeof(h);
++	uint32_t ow, oh, chunks, chunk = 0, used = 0;
++
++	if (!fuxi_fb_map()) {
++		return -1;
++	}
++	if (scale == 0) {
++		scale = FUXI_FB_SCALE;
++	}
++	ow = fuxi_fb_w / scale;
++	oh = fuxi_fb_h / scale;
++	if (ow == 0 || oh == 0) {
++		return -1;
++	}
++	chunks = (ow * oh * 3u + FUXI_FB_CHUNK - 1) / FUXI_FB_CHUNK;
++
++	bzero(&h, sizeof(h));
++	memcpy(h.magic, FUXI_FB_MAGIC, 8);
++	h.frame = ++fuxi_fb_frame;
++	h.chunks = chunks;
++	h.width = ow;
++	h.height = oh;
++	h.scale = scale;
++
++	for (uint32_t y = 0; y < oh; y++) {
++		volatile uint32_t *row = fuxi_fb_base +
++		    (uint64_t)(y * scale) * (fuxi_fb_stride / 4);
++
++		for (uint32_t x = 0; x < ow; x++) {
++			uint32_t px = row[x * scale];
++
++			if (used + 3 > FUXI_FB_CHUNK) {
++				fuxi_fb_send(so, &h, used, chunk++);
++				used = 0;
++			}
++			payload[used++] = (uint8_t)(px >> 16);   /* R */
++			payload[used++] = (uint8_t)(px >> 8);    /* G */
++			payload[used++] = (uint8_t)(px);         /* B */
++		}
++	}
++	if (used > 0) {
++		fuxi_fb_send(so, &h, used, chunk++);
++	}
++	printf("FUXI FB: frame %u %ux%u scale %u in %u chunks\n", h.frame, ow, oh,
++	    scale, chunk);
++	return 0;
++}
++
+ static void
+ ud_cmd_dispatch(socket_t so, char *line)
+ {
