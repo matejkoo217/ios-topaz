@@ -16,12 +16,12 @@ diff --git a/osfmk/vm/vm_kern.c b/osfmk/vm/vm_kern.c
 + * https://prng.di.unimi.it/splitmix64.c
 + * This is private to kmem; it does not register or replace crypto services.
 + */
-+struct sweet_kmem_rng {
++struct fuxi_kmem_rng {
 +	uint64_t state;
 +};
 +
 +static uint64_t
-+sweet_kmem_random64(struct sweet_kmem_rng *rng)
++fuxi_kmem_random64(struct fuxi_kmem_rng *rng)
 +{
 +	uint64_t value = (rng->state += 0x9e3779b97f4a7c15ULL);
 +	value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -30,14 +30,14 @@ diff --git a/osfmk/vm/vm_kern.c b/osfmk/vm/vm_kern.c
 +}
 +
 +static uint64_t
-+sweet_kmem_uniform(struct sweet_kmem_rng *rng, uint64_t bound)
++fuxi_kmem_uniform(struct fuxi_kmem_rng *rng, uint64_t bound)
 +{
 +	assert(bound != 0);
 +	/* Reject the incomplete residue interval to avoid modulo bias. */
 +	const uint64_t threshold = -bound % bound;
 +	uint64_t value;
 +	do {
-+		value = sweet_kmem_random64(rng);
++		value = fuxi_kmem_random64(rng);
 +	} while (value < threshold);
 +	return value % bound;
 +}
@@ -53,7 +53,7 @@ diff --git a/osfmk/vm/vm_kern.c b/osfmk/vm/vm_kern.c
  kmem_crypto_init(void)
  {
 +#if defined(SWEET)
-+	vm_size_t ctx_size = sizeof(struct sweet_kmem_rng);
++	vm_size_t ctx_size = sizeof(struct fuxi_kmem_rng);
 +#else
  	vm_size_t ctx_size = crypto_random_kmem_ctx_size();
 +#endif
@@ -64,7 +64,7 @@ diff --git a/osfmk/vm/vm_kern.c b/osfmk/vm/vm_kern.c
  		ks->ks_rng_ctx = zalloc_percpu_permanent(ctx_size, ZALIGN_PTR);
  		zpercpu_foreach(ctx, ks->ks_rng_ctx) {
 +#if defined(SWEET)
-+			((struct sweet_kmem_rng *)ctx)->state = early_random();
++			((struct fuxi_kmem_rng *)ctx)->state = early_random();
 +#else
  			crypto_random_kmem_init(ctx);
 +#endif
@@ -87,7 +87,7 @@ diff --git a/osfmk/vm/vm_kern.c b/osfmk/vm/vm_kern.c
  		slot_idx = kmem_get_random16((uint16_t)num_slots - 1);
  	} else {
 +#if defined(SWEET)
-+		slot_idx = sweet_kmem_uniform(zpercpu_get(sizeclass.ks_rng_ctx), num_slots);
++		slot_idx = fuxi_kmem_uniform(zpercpu_get(sizeclass.ks_rng_ctx), num_slots);
 +#else
  		crypto_random_uniform(zpercpu_get(sizeclass.ks_rng_ctx), num_slots,
  		    &slot_idx);

@@ -148,34 +148,34 @@
   * ring offset of byte n = n % ring size. Read it from a recovery with
 @@ -622,10 +676,12 @@
   */
- #define SWEET_LOG_SIZE          (4u << 20)
- #define SWEET_LOG_BLOCKS        (1 + SWEET_LOG_SIZE / UFS_BLOCK)
-+#define SWEET_LOG_SECS          10u
+ #define FUXI_LOG_SIZE          (4u << 20)
+ #define FUXI_LOG_BLOCKS        (1 + FUXI_LOG_SIZE / UFS_BLOCK)
++#define FUXI_LOG_SECS          10u
  
- static char sweet_log_ring[SWEET_LOG_SIZE];
- static uint64_t _Atomic sweet_log_total;
- static int sweet_log_chan;
-+static uint32_t sweet_log_secs = SWEET_LOG_SECS;
+ static char fuxi_log_ring[FUXI_LOG_SIZE];
+ static uint64_t _Atomic fuxi_log_total;
+ static int fuxi_log_chan;
++static uint32_t fuxi_log_secs = FUXI_LOG_SECS;
  
  /* Called for all console output, any context: never blocks. */
- void sweet_log_append(const char *c, int size);
+ void fuxi_log_append(const char *c, int size);
 @@ -658,7 +714,7 @@
  	printf("FUXI LOG: console log to the last %u KiB of the partition (block 0x%llx)\n",
- 	    SWEET_LOG_BLOCKS * UFS_BLOCK >> 10, base);
+ 	    FUXI_LOG_BLOCKS * UFS_BLOCK >> 10, base);
  	for (;;) {
--		(void)tsleep(&sweet_log_chan, PZERO, "sweetlog", hz);
-+		(void)tsleep(&sweet_log_chan, PZERO, "sweetlog", hz * (int)sweet_log_secs);
- 		uint64_t total = os_atomic_load(&sweet_log_total, relaxed);
+-		(void)tsleep(&fuxi_log_chan, PZERO, "sweetlog", hz);
++		(void)tsleep(&fuxi_log_chan, PZERO, "sweetlog", hz * (int)fuxi_log_secs);
+ 		uint64_t total = os_atomic_load(&fuxi_log_total, relaxed);
  		if (total == flushed) {
  			continue;
 @@ -708,6 +764,10 @@
- 	if (!on || !su.writable || su.nblocks < 2 * SWEET_LOG_BLOCKS) {
+ 	if (!on || !su.writable || su.nblocks < 2 * FUXI_LOG_BLOCKS) {
  		return;
  	}
-+	PE_parse_boot_argn("ufslogsecs", &sweet_log_secs, sizeof(sweet_log_secs));
-+	if (sweet_log_secs == 0 || sweet_log_secs > 60) {
-+		sweet_log_secs = SWEET_LOG_SECS;
++	PE_parse_boot_argn("ufslogsecs", &fuxi_log_secs, sizeof(fuxi_log_secs));
++	if (fuxi_log_secs == 0 || fuxi_log_secs > 60) {
++		fuxi_log_secs = FUXI_LOG_SECS;
 +	}
- 	if (kernel_thread_start(sweet_log_thread, NULL, &thread) == KERN_SUCCESS) {
+ 	if (kernel_thread_start(fuxi_log_thread, NULL, &thread) == KERN_SUCCESS) {
  		thread_deallocate(thread);
  	}

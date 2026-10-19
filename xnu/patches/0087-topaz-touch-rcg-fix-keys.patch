@@ -3,8 +3,8 @@ index a148608..65970f9 100644
 --- a/bsd/dev/fuxi_keys.c
 +++ b/bsd/dev/fuxi_keys.c
 @@ -17,11 +17,12 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
- extern void sweet_hid_key(int key, int down);
- void sweet_keys_init(void);
+ extern void fuxi_hid_key(int key, int down);
+ void fuxi_keys_init(void);
  
 -#define KEYS_CORE_PA     0x0c440000u
 -#define KEYS_OBS_PA      0x0e600000u
@@ -19,7 +19,7 @@ index a148608..65970f9 100644
  #define KEYS_NO_APID     0xffffu
  
  static vm_offset_t keys_core, keys_obs, keys_cnfg;
-@@ -152,13 +153,13 @@ sweet_keys_init(void)
+@@ -152,13 +153,13 @@ fuxi_keys_init(void)
  		return;
  	}
  	keys_pon_apid = keys_find_apid(0x008, count);
@@ -37,7 +37,7 @@ index a148608..65970f9 100644
  	printf("FUXI KEYS: arb=%#x apids=%u pon-apid=%u gpio4-apid=%u pon=%#x/%d gpio=%#x/%d mode=%#x/%d en=%#x/%d subtype=%#x/%d\n",
  	    keys_version, count, keys_pon_apid, keys_gpio_apid,
  	    pon, pok, gpio, gok, mode, mok, en, eok, subtype, sok);
-@@ -166,7 +167,7 @@ sweet_keys_init(void)
+@@ -166,7 +167,7 @@ fuxi_keys_init(void)
  	unsigned dir = subtype >= 0x10u && subtype <= 0x13u ?
  	    mode & 3u : (mode >> 4) & 7u;
  	if (!eok || !mok || !sok || !(en & 0x80u) || (dir != 0 && dir != 2)) {
@@ -50,7 +50,7 @@ diff --git a/bsd/dev/fuxi_touch.c b/bsd/dev/fuxi_touch.c
 index 61f7769..a9b928b 100644
 --- a/bsd/dev/fuxi_touch.c
 +++ b/bsd/dev/fuxi_touch.c
-@@ -29,7 +29,7 @@ void sweet_touch_init(void);
+@@ -29,7 +29,7 @@ void fuxi_touch_init(void);
  #define TOUCH_WEST_PA    0x00500000u /* TLMM 0x400000 + WEST tile: GPIO 6/7/80/86 */
  #define TOUCH_EAST_PA    0x00d00000u /* TLMM 0x400000 + EAST tile: GPIO 36 */
  #define TOUCH_GCC_VOTE   0x7900cu    /* QUP0 wrapper + SE2 vote, bits 0x13c0 */
@@ -113,7 +113,7 @@ index 61f7769..a9b928b 100644
  	/* Linux 8-bit I2C packing: MSB on the wire, LSB byte first in FIFO. */
  	touch_wr(st.se, 0x254, 0);
  	touch_wr(st.se, 0x260, SE_PACK0);
-@@ -703,6 +717,7 @@ sweet_touch_init(void)
+@@ -703,6 +717,7 @@ fuxi_touch_init(void)
  	}
  	st.started = true;
  	(void)PE_parse_boot_argn("sweettouch", &enabled, sizeof(enabled));
@@ -125,8 +125,8 @@ diff --git a/bsd/dev/fuxi_ufs.c b/bsd/dev/fuxi_ufs.c
 index af6e35c..b7be070 100644
 --- a/bsd/dev/fuxi_ufs.c
 +++ b/bsd/dev/fuxi_ufs.c
-@@ -658,18 +658,18 @@ sweet_ufs_init(void)
- 	sweet_sample_start();
+@@ -658,18 +658,18 @@ fuxi_ufs_init(void)
+ 	fuxi_sample_start();
  	/*
  	 * Input drivers (HID services in iokit/Kernel/arm/hid/FuxiHID.cpp).
 -	 * Touch is ported to topaz (FT5452 on QUP0 SE2; sweettouch=0 disables
@@ -138,11 +138,11 @@ index af6e35c..b7be070 100644
  	 */
  	int hw = 0;
  	(void)PE_parse_boot_argn("sweethw", &hw, sizeof(hw));
- 	sweet_touch_init();
-+	sweet_keys_init();
+ 	fuxi_touch_init();
++	fuxi_keys_init();
  	if (hw == 1) {
--		sweet_keys_init();
- 		sweet_usb_probe();
+-		fuxi_keys_init();
+ 		fuxi_usb_probe();
  	} else {
 -		printf("FUXI UFS: keys/USB skipped (fuxi, sweethw=0)\n");
 +		printf("FUXI UFS: USB skipped (fuxi, sweethw=0)\n");

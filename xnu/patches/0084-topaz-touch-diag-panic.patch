@@ -109,7 +109,7 @@ index 03064d7..c810ee9 100644
  	(void)thread_terminate(current_thread());
  	thread_block(THREAD_CONTINUE_NULL);
  }
-@@ -647,6 +681,7 @@ sweet_touch_init(void)
+@@ -647,6 +681,7 @@ fuxi_touch_init(void)
  	st.started = true;
  	(void)PE_parse_boot_argn("sweettouch", &enabled, sizeof(enabled));
  	(void)PE_parse_boot_argn("sweettouchirq", &st.irq_hint, sizeof(st.irq_hint));

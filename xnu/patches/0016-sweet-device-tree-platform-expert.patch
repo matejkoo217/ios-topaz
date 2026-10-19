@@ -7,7 +7,7 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
      "("
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +    "   {"
-+    "     'IOClass'         = SweetPlatformExpert;"
++    "     'IOClass'         = FuxiPlatformExpert;"
 +    "     'IOProviderClass' = IOPlatformExpertDevice;"
 +    "     'IONameMatch'     = 'xiaomi,sweet';"
 +    "     'IOProbeScore'    = 10000:32;"
@@ -43,8 +43,8 @@ new file mode 100644
 +#include <IOKit/IODeviceTreeSupport.h>
 +#include <IOKit/IOLib.h>
 +
-+class SweetPlatformExpert : public IODTPlatformExpert {
-+	OSDeclareDefaultStructors(SweetPlatformExpert);
++class FuxiPlatformExpert : public IODTPlatformExpert {
++	OSDeclareDefaultStructors(FuxiPlatformExpert);
 +
 +public:
 +	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
@@ -55,10 +55,10 @@ new file mode 100644
 +	bool getProductName(char *name, int maxLength) APPLE_KEXT_OVERRIDE;
 +};
 +
-+OSDefineMetaClassAndStructors(SweetPlatformExpert, IODTPlatformExpert);
++OSDefineMetaClassAndStructors(FuxiPlatformExpert, IODTPlatformExpert);
 +
 +bool
-+SweetPlatformExpert::start(IOService *provider)
++FuxiPlatformExpert::start(IOService *provider)
 +{
 +	IOLog("FUXI: starting device-tree platform expert\n");
 +	if (!IODTPlatformExpert::start(provider)) {
@@ -70,19 +70,19 @@ new file mode 100644
 +}
 +
 +const char *
-+SweetPlatformExpert::deleteList(void)
++FuxiPlatformExpert::deleteList(void)
 +{
 +	return "()";
 +}
 +
 +const char *
-+SweetPlatformExpert::excludeList(void)
++FuxiPlatformExpert::excludeList(void)
 +{
 +	return "('chosen', 'defaults', 'cpus', 'options')";
 +}
 +
 +void
-+SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
++FuxiPlatformExpert::processTopLevel(IORegistryEntry *root)
 +{
 +	/*
 +	 * The stock implementation requires an Apple NVRAM /options node.
@@ -98,7 +98,7 @@ new file mode 100644
 +}
 +
 +bool
-+SweetPlatformExpert::getTargetName(char *name, int maxLength)
++FuxiPlatformExpert::getTargetName(char *name, int maxLength)
 +{
 +	if (name == NULL || maxLength <= 0) {
 +		return false;
@@ -108,7 +108,7 @@ new file mode 100644
 +}
 +
 +bool
-+SweetPlatformExpert::getProductName(char *name, int maxLength)
++FuxiPlatformExpert::getProductName(char *name, int maxLength)
 +{
 +	if (name == NULL || maxLength <= 0) {
 +		return false;

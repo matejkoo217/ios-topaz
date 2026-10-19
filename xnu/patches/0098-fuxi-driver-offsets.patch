@@ -28,8 +28,8 @@ diff --git a/bsd/dev/fuxi_touch.c b/bsd/dev/fuxi_touch.c
 --- a/bsd/dev/fuxi_touch.c
 +++ b/bsd/dev/fuxi_touch.c
 @@ -24,10 +24,29 @@
- extern void sweet_hid_touch(int finger, int down, int x, int y);
- void sweet_touch_init(void);
+ extern void fuxi_hid_touch(int finger, int down, int x, int y);
+ void fuxi_touch_init(void);
  
 +#if defined(ARM64_BOARD_CONFIG_FUXI)
 +/*
@@ -62,8 +62,8 @@ diff --git a/bsd/dev/fuxi_keys.c b/bsd/dev/fuxi_keys.c
 --- a/bsd/dev/fuxi_keys.c
 +++ b/bsd/dev/fuxi_keys.c
 @@ -17,6 +17,23 @@
- extern void sweet_hid_key(int key, int down);
- void sweet_keys_init(void);
+ extern void fuxi_hid_key(int key, int down);
+ void fuxi_keys_init(void);
  
 +#if defined(ARM64_BOARD_CONFIG_FUXI)
 +/*

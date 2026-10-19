@@ -13,20 +13,20 @@
 +++ b/bsd/dev/fuxi_ufs.c
 @@ -47,6 +47,8 @@
  extern int hz;
- static void sweet_log_start(void);
- extern void sweet_sample_start(void);
-+extern void sweet_keys_init(void);
-+extern void sweet_touch_init(void);
+ static void fuxi_log_start(void);
+ extern void fuxi_sample_start(void);
++extern void fuxi_keys_init(void);
++extern void fuxi_touch_init(void);
  
  #define REG_CAP         0x00
  #define REG_IS          0x20
 @@ -599,6 +601,9 @@
  	    su.writable ? "read-write" : "read-only", su.dma_pa);
- 	sweet_log_start();
- 	sweet_sample_start();
+ 	fuxi_log_start();
+ 	fuxi_sample_start();
 +	/* Input drivers (HID services in iokit/Kernel/arm/hid/FuxiHID.cpp). */
-+	sweet_keys_init();
-+	sweet_touch_init();
++	fuxi_keys_init();
++	fuxi_touch_init();
  	return 0;
  }
  
@@ -49,8 +49,8 @@
 +#include <pexpert/pexpert.h>
 +
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-+extern void sweet_hid_key(int key, int down);
-+void sweet_keys_init(void);
++extern void fuxi_hid_key(int key, int down);
++void fuxi_keys_init(void);
 +
 +#define KEYS_CORE_PA     0x0c440000u
 +#define KEYS_OBS_PA      0x0e600000u
@@ -150,7 +150,7 @@
 +				state[k] = now[k];
 +				printf("FUXI KEYS: key=%d down=%d pon=%#x gpio4:c110=%#x\n",
 +				    k, state[k], pon, gpio);
-+				sweet_hid_key(k, state[k]);
++				fuxi_hid_key(k, state[k]);
 +			}
 +		}
 +		keys_wait();
@@ -158,7 +158,7 @@
 +}
 +
 +void
-+sweet_keys_init(void)
++fuxi_keys_init(void)
 +{
 +	int enabled = 1;
 +	thread_t thread;
@@ -238,8 +238,8 @@
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 +/* Mach MIG declaration is not included by BSD's exported thread.h. */
 +extern kern_return_t thread_terminate(thread_t);
-+extern void sweet_hid_touch(int finger, int down, int x, int y);
-+void sweet_touch_init(void);
++extern void fuxi_hid_touch(int finger, int down, int x, int y);
++void fuxi_touch_init(void);
 +
 +#define TOUCH_SE_PA      0x00a84000u
 +#define TOUCH_GCC_PA     0x00100000u
@@ -523,12 +523,12 @@
 +		uint32_t bit = 1u << id;
 +		if (mask & bit) {
 +			if (!(st.active & bit) || x[id] != st.x[id] || y[id] != st.y[id]) {
-+				sweet_hid_touch((int)id, 1, x[id], y[id]);
++				fuxi_hid_touch((int)id, 1, x[id], y[id]);
 +			}
 +			st.x[id] = x[id];
 +			st.y[id] = y[id];
 +		} else if (st.active & bit) {
-+			sweet_hid_touch((int)id, 0, st.x[id], st.y[id]);
++			fuxi_hid_touch((int)id, 0, st.x[id], st.y[id]);
 +		}
 +	}
 +	st.active = mask;
@@ -764,7 +764,7 @@
 +}
 +
 +void
-+sweet_touch_init(void)
++fuxi_touch_init(void)
 +{
 +	int enabled = 1;
 +	thread_t thread;

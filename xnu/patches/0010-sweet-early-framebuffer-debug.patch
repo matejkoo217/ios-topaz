@@ -14,7 +14,7 @@ index e26a1d7..e3579f1 100644
  	DTEntry chosen = NULL;
  	unsigned int dt_entry_size = 0;
  
-+	sweet_early_mark(1, "arm_init entered (MMU on)");
++	fuxi_early_mark(1, "arm_init entered (MMU on)");
 +
  	arm_setup_pre_sign();
  
@@ -23,7 +23,7 @@ index e26a1d7..e3579f1 100644
  #endif /* defined(HAS_APPLE_PAC) */
  
  	PE_init_platform(FALSE, args); /* Get platform expert set up */
-+	sweet_early_mark(2, "PE_init_platform done");
++	fuxi_early_mark(2, "PE_init_platform done");
  
  #if __arm64__
  	configure_timer_apple_regs();
@@ -31,7 +31,7 @@ index e26a1d7..e3579f1 100644
  #endif
  
  	ml_parse_cpu_topology();
-+	sweet_early_mark(3, "ml_parse_cpu_topology done");
++	fuxi_early_mark(3, "ml_parse_cpu_topology done");
  
  
  	master_cpu = ml_get_boot_cpu_number();
@@ -39,13 +39,13 @@ index e26a1d7..e3579f1 100644
  	 */
  	thread->machine.preemption_count = 0;
  	cpu_bootstrap();
-+	sweet_early_mark(4, "cpu_bootstrap done");
++	fuxi_early_mark(4, "cpu_bootstrap done");
  
  	rtclock_early_init();
  
  	kernel_debug_string_early("kernel_startup_bootstrap");
  	kernel_startup_bootstrap();
-+	sweet_early_mark(5, "kernel_startup_bootstrap done");
++	fuxi_early_mark(5, "kernel_startup_bootstrap done");
  
  	/*
  	 * Initialize the timer callout world
@@ -53,7 +53,7 @@ index e26a1d7..e3579f1 100644
  
  	cpu_init();
  
-+	sweet_early_mark(6, "cpu_init done");
++	fuxi_early_mark(6, "cpu_init done");
  	processor_bootstrap();
  
  	if (PE_parse_boot_argn("maxmem", &maxmem, sizeof(maxmem))) {
@@ -61,7 +61,7 @@ index e26a1d7..e3579f1 100644
  	__builtin_arm_wsr("pan", 1);
  #endif  /* __ARM_PAN_AVAILABLE__ */
  
-+	sweet_early_mark(7, "entering arm_vm_init");
++	fuxi_early_mark(7, "entering arm_vm_init");
  	arm_vm_init(xmaxmem, args);
  
  	if (debug_boot_arg) {
@@ -82,7 +82,7 @@ index d89b0f1..d0c710d 100644
  	ml_enable_monitor();
  
 +	/* The framebuffer VA=PA mapping belongs to the outgoing TTBR0. */
-+	sweet_early_disable();
++	fuxi_early_disable();
  	set_mmu_ttb(invalid_ttep & TTBR_BADDR_MASK);
  
  	flush_mmu_tlb();
@@ -100,16 +100,16 @@ index ccbb188..777aca4 100644
 +	mov		w1, #-1
 +	mov		x2, #32
 +	mov		x4, #4320
-+Lsweet_mark_row:
++Lfuxi_mark_row:
 +	mov		x3, #64
 +	mov		x5, x0
-+Lsweet_mark_pixel:
++Lfuxi_mark_pixel:
 +	str		w1, [x5], #4
 +	subs	x3, x3, #1
-+	b.ne	Lsweet_mark_pixel
++	b.ne	Lfuxi_mark_pixel
 +	add		x0, x0, x4
 +	subs	x2, x2, #1
-+	b.ne	Lsweet_mark_row
++	b.ne	Lfuxi_mark_row
 +	dsb		sy
 +#endif
 +
@@ -175,7 +175,7 @@ index 0000000..8f4c808
 +static unsigned int early_started, early_disabled, early_panicking;
 +
 +static void
-+sweet_early_clear_row(void)
++fuxi_early_clear_row(void)
 +{
 +	for (unsigned int y = 0; y < EARLY_CELL_H; y++) {
 +		volatile uint32_t *line = EARLY_FB + (early_row * EARLY_CELL_H + y) * EARLY_STRIDE;
@@ -186,14 +186,14 @@ index 0000000..8f4c808
 +}
 +
 +void
-+sweet_early_putc(char c)
++fuxi_early_putc(char c)
 +{
 +	if (early_disabled) {
 +		return;
 +	}
 +	if (!early_started) {
 +		early_started = 1;
-+		sweet_early_clear_row();
++		fuxi_early_clear_row();
 +	}
 +	if (c == '\r') {
 +		early_col = 0;
@@ -202,7 +202,7 @@ index 0000000..8f4c808
 +	if (c == '\n' || early_col == EARLY_COLS) {
 +		early_col = 0;
 +		early_row = (early_row + 1) % EARLY_ROWS;
-+		sweet_early_clear_row();
++		fuxi_early_clear_row();
 +		if (c == '\n') {
 +			return;
 +		}
@@ -225,15 +225,15 @@ index 0000000..8f4c808
 +}
 +
 +static void
-+sweet_early_string(const char *s)
++fuxi_early_string(const char *s)
 +{
 +	while (*s) {
-+		sweet_early_putc(*s++);
++		fuxi_early_putc(*s++);
 +	}
 +}
 +
 +void
-+sweet_early_mark(unsigned int stage, const char *label)
++fuxi_early_mark(unsigned int stage, const char *label)
 +{
 +	if (early_disabled || stage > 8) {
 +		return;
@@ -245,33 +245,33 @@ index 0000000..8f4c808
 +		}
 +	}
 +	__asm__ volatile("dsb sy" ::: "memory");
-+	sweet_early_string("FUXI EARLY ");
-+	sweet_early_putc((char)('0' + stage));
-+	sweet_early_string(": ");
-+	sweet_early_string(label);
-+	sweet_early_putc('\n');
++	fuxi_early_string("FUXI EARLY ");
++	fuxi_early_putc((char)('0' + stage));
++	fuxi_early_string(": ");
++	fuxi_early_string(label);
++	fuxi_early_putc('\n');
 +}
 +
 +void
-+sweet_early_panic(const char *fmt, va_list *args)
++fuxi_early_panic(const char *fmt, va_list *args)
 +{
 +	if (early_disabled || early_panicking) {
 +		return;
 +	}
 +	early_panicking = 1;
-+	sweet_early_string("\nFUXI EARLY PANIC: ");
++	fuxi_early_string("\nFUXI EARLY PANIC: ");
 +	va_list copy;
 +	va_copy(copy, *args);
-+	_doprnt(fmt, &copy, sweet_early_putc, 16);
++	_doprnt(fmt, &copy, fuxi_early_putc, 16);
 +	va_end(copy);
-+	sweet_early_putc('\n');
++	fuxi_early_putc('\n');
 +	__asm__ volatile("dsb sy" ::: "memory");
 +}
 +
 +void
-+sweet_early_disable(void)
++fuxi_early_disable(void)
 +{
-+	sweet_early_mark(8, "leaving bootstrap TTBR0");
++	fuxi_early_mark(8, "leaving bootstrap TTBR0");
 +	early_disabled = 1;
 +	__asm__ volatile("dsb sy" ::: "memory");
 +}
@@ -283,24 +283,24 @@ index 0000000..fbbc827
 +++ b/osfmk/arm64/fuxi_early.h
 @@ -0,0 +1,22 @@
 +/* Early screen diagnostics, valid only while the bootstrap TTBR0 is live. */
-+#ifndef _ARM64_SWEET_EARLY_H_
-+#define _ARM64_SWEET_EARLY_H_
++#ifndef _ARM64_FUXI_EARLY_H_
++#define _ARM64_FUXI_EARLY_H_
 +
 +#include <pexpert/arm64/board_config.h>
 +#include <stdarg.h>
 +
 +#if defined(SWEET)
-+void sweet_early_mark(unsigned int stage, const char *label);
-+void sweet_early_putc(char c);
-+void sweet_early_panic(const char *fmt, va_list *args);
-+void sweet_early_disable(void);
++void fuxi_early_mark(unsigned int stage, const char *label);
++void fuxi_early_putc(char c);
++void fuxi_early_panic(const char *fmt, va_list *args);
++void fuxi_early_disable(void);
 +#else
-+static inline void sweet_early_mark(unsigned int stage, const char *label)
++static inline void fuxi_early_mark(unsigned int stage, const char *label)
 +{
 +	(void)stage;
 +	(void)label;
 +}
-+static inline void sweet_early_disable(void) {}
++static inline void fuxi_early_disable(void) {}
 +#endif
 +
 +#endif
@@ -336,7 +336,7 @@ index 0a00656..437adb1 100644
  
 +#if defined(SWEET)
 +	/* No CPU/thread/debugger state is required for this first panic copy. */
-+	sweet_early_panic(panic_format_str, panic_args);
++	fuxi_early_panic(panic_format_str, panic_args);
 +#endif
 +
  #if defined(__x86_64__) && (DEVELOPMENT || DEBUG)

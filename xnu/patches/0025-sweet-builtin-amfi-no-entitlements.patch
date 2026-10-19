@@ -40,19 +40,19 @@ new file mode 100644
 +#include <sys/systm.h>
 +
 +static void
-+sweet_amfi_entitlements_invalidate(__unused void *os_entitlements)
++fuxi_amfi_entitlements_invalidate(__unused void *os_entitlements)
 +{
 +	/* No OSEntitlements objects are ever created. */
 +}
 +
 +static void *
-+sweet_amfi_entitlements_as_dict(__unused void *os_entitlements)
++fuxi_amfi_entitlements_as_dict(__unused void *os_entitlements)
 +{
 +	return NULL;
 +}
 +
 +static CEError_t
-+sweet_amfi_entitlements_query(__unused void *os_entitlements,
++fuxi_amfi_entitlements_query(__unused void *os_entitlements,
 +    __unused uint8_t cdhash[CS_CDHASH_LEN], __unused CEQuery_t query,
 +    __unused size_t query_length)
 +{
@@ -60,40 +60,40 @@ new file mode 100644
 +}
 +
 +static bool
-+sweet_amfi_entitlements_get_transmuted(__unused void *os_entitlements,
++fuxi_amfi_entitlements_get_transmuted(__unused void *os_entitlements,
 +    __unused const CS_GenericBlob **blob)
 +{
 +	return false;
 +}
 +
 +static bool
-+sweet_amfi_entitlements_get_xml(__unused void *os_entitlements,
++fuxi_amfi_entitlements_get_xml(__unused void *os_entitlements,
 +    __unused CS_GenericBlob **blob)
 +{
 +	return false;
 +}
 +
 +static bool
-+sweet_amfi_get_legacy_profile_exemptions(__unused const uint8_t **profile,
++fuxi_amfi_get_legacy_profile_exemptions(__unused const uint8_t **profile,
 +    __unused size_t *profile_length)
 +{
 +	return false;
 +}
 +
 +static bool
-+sweet_amfi_get_udid(__unused const uint8_t **udid, __unused size_t *udid_length)
++fuxi_amfi_get_udid(__unused const uint8_t **udid, __unused size_t *udid_length)
 +{
 +	return false;
 +}
 +
 +static void *
-+sweet_amfi_query_context_to_object(__unused CEQueryContext_t ctx)
++fuxi_amfi_query_context_to_object(__unused CEQueryContext_t ctx)
 +{
 +	panic("FUXI AMFI: CoreEntitlements query contexts are not implemented");
 +}
 +
 +static kern_return_t
-+sweet_amfi_adjust_with_monitor(__unused void *os_entitlements,
++fuxi_amfi_adjust_with_monitor(__unused void *os_entitlements,
 +    __unused const CEQueryContext_t ce_ctx, __unused const void *monitor_sig_obj,
 +    __unused const char *identity, __unused const uint32_t code_signing_flags)
 +{
@@ -102,7 +102,7 @@ new file mode 100644
 +}
 +
 +static kern_return_t
-+sweet_amfi_adjust_without_monitor(__unused void *os_entitlements,
++fuxi_amfi_adjust_without_monitor(__unused void *os_entitlements,
 +    __unused struct cs_blob *code_signing_blob)
 +{
 +	/* Leave the blob without an entitlements context: it has none. */
@@ -110,35 +110,35 @@ new file mode 100644
 +}
 +
 +static kern_return_t
-+sweet_amfi_query_boolean(__unused const void *os_entitlements,
++fuxi_amfi_query_boolean(__unused const void *os_entitlements,
 +    __unused const char *entitlement_name)
 +{
 +	return KERN_DENIED;
 +}
 +
 +static kern_return_t
-+sweet_amfi_query_boolean_with_proc(__unused const proc_t proc,
++fuxi_amfi_query_boolean_with_proc(__unused const proc_t proc,
 +    __unused const char *entitlement_name)
 +{
 +	return KERN_DENIED;
 +}
 +
 +static kern_return_t
-+sweet_amfi_query_string(__unused const void *os_entitlements,
++fuxi_amfi_query_string(__unused const void *os_entitlements,
 +    __unused const char *entitlement_name, __unused const char *entitlement_value)
 +{
 +	return KERN_DENIED;
 +}
 +
 +static kern_return_t
-+sweet_amfi_query_string_with_proc(__unused const proc_t proc,
++fuxi_amfi_query_string_with_proc(__unused const proc_t proc,
 +    __unused const char *entitlement_name, __unused const char *entitlement_value)
 +{
 +	return KERN_DENIED;
 +}
 +
 +static kern_return_t
-+sweet_amfi_copy_object(__unused const void *os_entitlements,
++fuxi_amfi_copy_object(__unused const void *os_entitlements,
 +    __unused const char *entitlement_name, void **entitlement_object)
 +{
 +	if (entitlement_object) {
@@ -148,7 +148,7 @@ new file mode 100644
 +}
 +
 +static kern_return_t
-+sweet_amfi_copy_object_with_proc(__unused const proc_t proc,
++fuxi_amfi_copy_object_with_proc(__unused const proc_t proc,
 +    __unused const char *entitlement_name, void **entitlement_object)
 +{
 +	if (entitlement_object) {
@@ -157,36 +157,36 @@ new file mode 100644
 +	return KERN_NOT_FOUND;
 +}
 +
-+static const amfi_t sweet_amfi = {
-+	.OSEntitlements_invalidate = sweet_amfi_entitlements_invalidate,
-+	.OSEntitlements_asdict = sweet_amfi_entitlements_as_dict,
-+	.OSEntitlements_query = sweet_amfi_entitlements_query,
-+	.OSEntitlements_get_transmuted = sweet_amfi_entitlements_get_transmuted,
-+	.OSEntitlements_get_xml = sweet_amfi_entitlements_get_xml,
++static const amfi_t fuxi_amfi = {
++	.OSEntitlements_invalidate = fuxi_amfi_entitlements_invalidate,
++	.OSEntitlements_asdict = fuxi_amfi_entitlements_as_dict,
++	.OSEntitlements_query = fuxi_amfi_entitlements_query,
++	.OSEntitlements_get_transmuted = fuxi_amfi_entitlements_get_transmuted,
++	.OSEntitlements_get_xml = fuxi_amfi_entitlements_get_xml,
 +	/* CoreEntitlements is only used by the PMAP_CS code signing monitor. */
-+	.get_legacy_profile_exemptions = sweet_amfi_get_legacy_profile_exemptions,
-+	.get_udid = sweet_amfi_get_udid,
-+	.query_context_to_object = sweet_amfi_query_context_to_object,
++	.get_legacy_profile_exemptions = fuxi_amfi_get_legacy_profile_exemptions,
++	.get_udid = fuxi_amfi_get_udid,
++	.query_context_to_object = fuxi_amfi_query_context_to_object,
 +	/* .TrustCache stays version 0: trust caches are unavailable without Image4. */
 +	.OSEntitlements = {
 +		.version = OSENTITLEMENTS_INTERFACE_VERSION,
-+		.adjustContextWithMonitor = sweet_amfi_adjust_with_monitor,
-+		.adjustContextWithoutMonitor = sweet_amfi_adjust_without_monitor,
-+		.queryEntitlementBoolean = sweet_amfi_query_boolean,
-+		.queryEntitlementBooleanWithProc = sweet_amfi_query_boolean_with_proc,
-+		.queryEntitlementString = sweet_amfi_query_string,
-+		.queryEntitlementStringWithProc = sweet_amfi_query_string_with_proc,
-+		.copyEntitlementAsOSObject = sweet_amfi_copy_object,
-+		.copyEntitlementAsOSObjectWithProc = sweet_amfi_copy_object_with_proc,
++		.adjustContextWithMonitor = fuxi_amfi_adjust_with_monitor,
++		.adjustContextWithoutMonitor = fuxi_amfi_adjust_without_monitor,
++		.queryEntitlementBoolean = fuxi_amfi_query_boolean,
++		.queryEntitlementBooleanWithProc = fuxi_amfi_query_boolean_with_proc,
++		.queryEntitlementString = fuxi_amfi_query_string,
++		.queryEntitlementStringWithProc = fuxi_amfi_query_string_with_proc,
++		.copyEntitlementAsOSObject = fuxi_amfi_copy_object,
++		.copyEntitlementAsOSObjectWithProc = fuxi_amfi_copy_object_with_proc,
 +	},
 +};
 +
 +__startup_func
 +static void
-+sweet_amfi_register(void)
++fuxi_amfi_register(void)
 +{
-+	amfi_interface_register(&sweet_amfi);
++	amfi_interface_register(&fuxi_amfi);
 +	printf("FUXI AMFI: built-in interface registered (no entitlements)\n");
 +}
-+STARTUP(EARLY_BOOT, STARTUP_RANK_MIDDLE, sweet_amfi_register);
++STARTUP(EARLY_BOOT, STARTUP_RANK_MIDDLE, fuxi_amfi_register);
 +#endif /* ARM64_BOARD_CONFIG_SWEET */

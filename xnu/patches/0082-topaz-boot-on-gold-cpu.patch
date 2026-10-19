@@ -2,7 +2,7 @@ diff --git a/iokit/Kernel/arm/FuxiCPU.cpp b/iokit/Kernel/arm/FuxiCPU.cpp
 index 1724396..96c557b 100644
 --- a/iokit/Kernel/arm/FuxiCPU.cpp
 +++ b/iokit/Kernel/arm/FuxiCPU.cpp
-@@ -144,9 +144,13 @@ SweetCPU::startAll(void *arg __unused, wait_result_t result __unused)
+@@ -144,9 +144,13 @@ FuxiCPU::startAll(void *arg __unused, wait_result_t result __unused)
  		}
  		IOSleep(1);
  	}
@@ -18,8 +18,8 @@ index 1724396..96c557b 100644
 +		    topology->boot_cpu->phys_id, topology->boot_cpu->cpu_id);
  	}
  	for (unsigned int i = 0; i < topology->num_cpus; i++) {
- 		SweetCPU *cpu = __atomic_load_n(&sweet_cpus[i], __ATOMIC_ACQUIRE);
-@@ -234,7 +238,7 @@ SweetCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
+ 		FuxiCPU *cpu = __atomic_load_n(&fuxi_cpus[i], __ATOMIC_ACQUIRE);
+@@ -234,7 +238,7 @@ FuxiCPU::startCPU(vm_offset_t start_paddr, vm_offset_t arg_paddr)
  {
  	const ml_topology_cpu_t *cpu = &ml_get_topology_info()->cpus[getCPUNumber()];
  	/* cpu_start() passes NULL,NULL: x20/x21 are set by LowResetVectorBase. */

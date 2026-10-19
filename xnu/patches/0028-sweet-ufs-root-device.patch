@@ -21,9 +21,9 @@ diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 +//	SWEET: root on a GPT partition of the internal UFS (bsd/dev/fuxi_ufs.c)
 +//
 +	if (strcmp(rdBootVar, "ufsroot0") == 0) {
-+		extern int sweet_ufs_rootdev(dev_t *dev);
++		extern int fuxi_ufs_rootdev(dev_t *dev);
 +		OSSafeReleaseNULL(matching);
-+		int ufs_error = sweet_ufs_rootdev(root);
++		int ufs_error = fuxi_ufs_rootdev(root);
 +		if (ufs_error) {
 +			panic("IOFindBSDRoot: FUXI UFS root %s unavailable: %d", rdBootVar, ufs_error);
 +		}
@@ -135,8 +135,8 @@ new file mode 100644
 +	bool ready;
 +} su;
 +
-+static LCK_GRP_DECLARE(sweet_ufs_grp, "sweet_ufs");
-+static LCK_MTX_DECLARE(sweet_ufs_lock, &sweet_ufs_grp);
++static LCK_GRP_DECLARE(fuxi_ufs_grp, "fuxi_ufs");
++static LCK_MTX_DECLARE(fuxi_ufs_lock, &fuxi_ufs_grp);
 +
 +static inline uint32_t
 +ufs_rd(uint32_t off)
@@ -332,7 +332,7 @@ new file mode 100644
 +}
 +
 +static int
-+sweet_ufs_open(__unused dev_t dev, int flags, __unused int devtype, __unused struct proc *p)
++fuxi_ufs_open(__unused dev_t dev, int flags, __unused int devtype, __unused struct proc *p)
 +{
 +	if (!su.ready) {
 +		return ENXIO;
@@ -341,13 +341,13 @@ new file mode 100644
 +}
 +
 +static int
-+sweet_ufs_close(__unused dev_t dev, __unused int flags, __unused int devtype, __unused struct proc *p)
++fuxi_ufs_close(__unused dev_t dev, __unused int flags, __unused int devtype, __unused struct proc *p)
 +{
 +	return 0;
 +}
 +
 +static void
-+sweet_ufs_strategy(buf_t bp)
++fuxi_ufs_strategy(buf_t bp)
 +{
 +	int error = 0;
 +	caddr_t vaddr = NULL;
@@ -372,7 +372,7 @@ new file mode 100644
 +		goto done;
 +	}
 +
-+	lck_mtx_lock(&sweet_ufs_lock);
++	lck_mtx_lock(&fuxi_ufs_lock);
 +	for (uint32_t done = 0; done < count;) {
 +		uint64_t pos = off + done;
 +		uint64_t lba = pos / UFS_BLOCK;
@@ -387,7 +387,7 @@ new file mode 100644
 +		done += want;
 +		buf_setresid(bp, count - done);
 +	}
-+	lck_mtx_unlock(&sweet_ufs_lock);
++	lck_mtx_unlock(&fuxi_ufs_lock);
 +	buf_unmap(bp);
 +
 +done:
@@ -398,7 +398,7 @@ new file mode 100644
 +}
 +
 +static int
-+sweet_ufs_ioctl(__unused dev_t dev, u_long cmd, caddr_t data, __unused int flag,
++fuxi_ufs_ioctl(__unused dev_t dev, u_long cmd, caddr_t data, __unused int flag,
 +    __unused struct proc *p, int is_char)
 +{
 +	uint32_t *f = (uint32_t *)data;
@@ -442,51 +442,51 @@ new file mode 100644
 +}
 +
 +static int
-+sweet_ufs_bioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
++fuxi_ufs_bioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 +{
-+	return sweet_ufs_ioctl(dev, cmd, data, flag, p, 0);
++	return fuxi_ufs_ioctl(dev, cmd, data, flag, p, 0);
 +}
 +
 +static int
-+sweet_ufs_cioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
++fuxi_ufs_cioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 +{
-+	return sweet_ufs_ioctl(dev, cmd, data, flag, p, 1);
++	return fuxi_ufs_ioctl(dev, cmd, data, flag, p, 1);
 +}
 +
 +static int
-+sweet_ufs_psize(__unused dev_t dev)
++fuxi_ufs_psize(__unused dev_t dev)
 +{
 +	return su.ready ? (int)MIN(su.nblocks * UFS_BLOCK / su.secsize, INT_MAX) : -1;
 +}
 +
 +static int
-+sweet_ufs_read(dev_t dev, struct uio *uio, __unused int ioflag)
++fuxi_ufs_read(dev_t dev, struct uio *uio, __unused int ioflag)
 +{
-+	return physio(sweet_ufs_strategy, NULL, dev, B_READ, minphys, uio, (int)su.secsize);
++	return physio(fuxi_ufs_strategy, NULL, dev, B_READ, minphys, uio, (int)su.secsize);
 +}
 +
 +static int
-+sweet_ufs_write(__unused dev_t dev, __unused struct uio *uio, __unused int ioflag)
++fuxi_ufs_write(__unused dev_t dev, __unused struct uio *uio, __unused int ioflag)
 +{
 +	return EROFS;
 +}
 +
-+static const struct bdevsw sweet_ufs_bdevsw = {
-+	.d_open     = sweet_ufs_open,
-+	.d_close    = sweet_ufs_close,
-+	.d_strategy = sweet_ufs_strategy,
-+	.d_ioctl    = sweet_ufs_bioctl,
++static const struct bdevsw fuxi_ufs_bdevsw = {
++	.d_open     = fuxi_ufs_open,
++	.d_close    = fuxi_ufs_close,
++	.d_strategy = fuxi_ufs_strategy,
++	.d_ioctl    = fuxi_ufs_bioctl,
 +	.d_dump     = eno_dump,
-+	.d_psize    = sweet_ufs_psize,
++	.d_psize    = fuxi_ufs_psize,
 +	.d_type     = D_DISK,
 +};
 +
-+static const struct cdevsw sweet_ufs_cdevsw = {
-+	.d_open       = sweet_ufs_open,
-+	.d_close      = sweet_ufs_close,
-+	.d_read       = sweet_ufs_read,
-+	.d_write      = sweet_ufs_write,
-+	.d_ioctl      = sweet_ufs_cioctl,
++static const struct cdevsw fuxi_ufs_cdevsw = {
++	.d_open       = fuxi_ufs_open,
++	.d_close      = fuxi_ufs_close,
++	.d_read       = fuxi_ufs_read,
++	.d_write      = fuxi_ufs_write,
++	.d_ioctl      = fuxi_ufs_cioctl,
 +	.d_stop       = eno_stop,
 +	.d_reset      = eno_reset,
 +	.d_ttys       = NULL,
@@ -499,7 +499,7 @@ new file mode 100644
 +};
 +
 +static int
-+sweet_ufs_init(void)
++fuxi_ufs_init(void)
 +{
 +	DTEntry node;
 +	uintptr_t const *reg = NULL;
@@ -529,7 +529,7 @@ new file mode 100644
 +	su.lun = 0;
 +	su.secsize = DEV_BSIZE;
 +
-+	lck_mtx_lock(&sweet_ufs_lock);
++	lck_mtx_lock(&fuxi_ufs_lock);
 +	error = ufs_take_over_host();
 +	if (!error) {
 +		static const uint8_t tur[6] = { 0x00 };
@@ -540,16 +540,16 @@ new file mode 100644
 +	if (!error) {
 +		error = ufs_find_partition(want);
 +	}
-+	lck_mtx_unlock(&sweet_ufs_lock);
++	lck_mtx_unlock(&fuxi_ufs_lock);
 +	if (error) {
 +		return error;
 +	}
 +
-+	su.bmajor = bdevsw_add(-1, &sweet_ufs_bdevsw);
++	su.bmajor = bdevsw_add(-1, &fuxi_ufs_bdevsw);
 +	if (su.bmajor < 0) {
 +		return ENXIO;
 +	}
-+	su.cmajor = cdevsw_add_with_bdev(-1, &sweet_ufs_cdevsw, su.bmajor);
++	su.cmajor = cdevsw_add_with_bdev(-1, &fuxi_ufs_cdevsw, su.bmajor);
 +	if (su.cmajor < 0) {
 +		return ENXIO;
 +	}
@@ -563,13 +563,13 @@ new file mode 100644
 +}
 +
 +/* Root device for rd=ufsroot0 (IOFindBSDRoot). */
-+int sweet_ufs_rootdev(dev_t *dev);
++int fuxi_ufs_rootdev(dev_t *dev);
 +
 +int
-+sweet_ufs_rootdev(dev_t *dev)
++fuxi_ufs_rootdev(dev_t *dev)
 +{
 +	if (!su.ready) {
-+		int error = sweet_ufs_init();
++		int error = fuxi_ufs_init();
 +		if (error) {
 +			return error;
 +		}

@@ -14,13 +14,13 @@
 + * data (container paths, extension tokens) fail with ENOENT. The first
 + * use of each operation number is logged.
 + */
-+static uint64_t sweet_sandbox_seen;
++static uint64_t fuxi_sandbox_seen;
 +
 +static int
-+sweet_sandbox_syscall(struct proc *p, int call, __unused user_addr_t arg)
++fuxi_sandbox_syscall(struct proc *p, int call, __unused user_addr_t arg)
 +{
-+	if (call >= 0 && call < 64 && !(sweet_sandbox_seen & (1ULL << call))) {
-+		sweet_sandbox_seen |= 1ULL << call;
++	if (call >= 0 && call < 64 && !(fuxi_sandbox_seen & (1ULL << call))) {
++		fuxi_sandbox_seen |= 1ULL << call;
 +		char name[32];
 +		proc_name(proc_pid(p), name, sizeof(name));
 +		printf("FUXI Sandbox: %s op %d\n", name, call);
@@ -36,30 +36,30 @@
 +	}
 +}
 +
- static const struct mac_policy_ops sweet_amfi_mac_ops = {
- 	.mpo_vnode_check_signature = sweet_amfi_vnode_check_signature,
+ static const struct mac_policy_ops fuxi_amfi_mac_ops = {
+ 	.mpo_vnode_check_signature = fuxi_amfi_vnode_check_signature,
  };
  
-+static const struct mac_policy_ops sweet_sandbox_mac_ops = {
-+	.mpo_policy_syscall = sweet_sandbox_syscall,
++static const struct mac_policy_ops fuxi_sandbox_mac_ops = {
++	.mpo_policy_syscall = fuxi_sandbox_syscall,
 +};
 +
-+static struct mac_policy_conf sweet_sandbox_mac_conf = {
++static struct mac_policy_conf fuxi_sandbox_mac_conf = {
 +	.mpc_name = "Sandbox",
 +	.mpc_fullname = "FUXI permissive sandbox stand-in",
-+	.mpc_ops = &sweet_sandbox_mac_ops,
++	.mpc_ops = &fuxi_sandbox_mac_ops,
 +};
 +
-+static mac_policy_handle_t sweet_sandbox_mac_handle;
++static mac_policy_handle_t fuxi_sandbox_mac_handle;
 +
- static struct mac_policy_conf sweet_amfi_mac_conf = {
+ static struct mac_policy_conf fuxi_amfi_mac_conf = {
  	.mpc_name = "FUXI AMFI",
  	.mpc_fullname = "FUXI built-in Mobile File Integrity",
 @@ -293,5 +337,8 @@
- 	int error = mac_policy_register(&sweet_amfi_mac_conf, &sweet_amfi_mac_handle, NULL);
+ 	int error = mac_policy_register(&fuxi_amfi_mac_conf, &fuxi_amfi_mac_handle, NULL);
  	printf("FUXI AMFI: platform binary policy %s (%d)\n",
  	    error ? "NOT registered" : "registered", error);
-+	error = mac_policy_register(&sweet_sandbox_mac_conf, &sweet_sandbox_mac_handle, NULL);
++	error = mac_policy_register(&fuxi_sandbox_mac_conf, &fuxi_sandbox_mac_handle, NULL);
 +	printf("FUXI Sandbox: permissive policy %s (%d)\n",
 +	    error ? "NOT registered" : "registered", error);
  }

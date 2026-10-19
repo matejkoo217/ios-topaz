@@ -7,7 +7,7 @@ Booting with more than one CPU panics at cpu2:
   cpu=2 mpidr=0x200 count=8 @FuxiCPU.cpp:80
 
 cpu0 (mpidr 0x0) and cpu1 (0x100) register fine; cpu2 carries mpidr 0x200
-and SweetCPU::start rejects it because the bound is topaz's:
+and FuxiCPU::start rejects it because the bound is topaz's:
 
   if ((cpu->phys_id >> 8) > 1 || (cpu->phys_id & 0xff) > 3 || ...)
 
@@ -18,7 +18,7 @@ regs are 0x000..0x700.  0x200 >> 8 == 2 fails "> 1" exactly as reported.
 
 Make the bound board-aware instead of widening it for everyone: fuxi
 allows Aff1 0..7 (Aff0 is effectively unused there), topaz keeps 0..1.
-SWEET_SMP_MAX_CPUS is already 8, so the count limit needs no change.
+FUXI_SMP_MAX_CPUS is already 8, so the count limit needs no change.
 
 Note the boot that produced this panic had cpus=8 on the command line;
 the earlier working boot used cpus=1, which is why the limit was never
@@ -39,11 +39,11 @@ hit until now.
 +	 * topology" the moment cpus > 2 is allowed.
 +	 */
 +	if ((cpu->phys_id >> 8) > 7 || (cpu->phys_id & 0xff) > 3 ||
-+	    topology->num_cpus > SWEET_SMP_MAX_CPUS) {
++	    topology->num_cpus > FUXI_SMP_MAX_CPUS) {
 +#else
  	/* topaz (SM6225): MPIDR Aff1 = cluster, Aff0 = core: 0x0-0x3 A53, 0x100-0x103 A73 */
  	if ((cpu->phys_id >> 8) > 1 || (cpu->phys_id & 0xff) > 3 ||
- 	    topology->num_cpus > SWEET_SMP_MAX_CPUS) {
+ 	    topology->num_cpus > FUXI_SMP_MAX_CPUS) {
 +#endif
  		panic("FUXI CPU: invalid topology cpu=%u mpidr=0x%x count=%u",
  		    cpu->cpu_id, cpu->phys_id, topology->num_cpus);

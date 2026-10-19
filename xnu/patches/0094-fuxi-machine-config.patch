@@ -17,7 +17,7 @@ index 0000000..f03605a
 +#     stay - but kpc is a no-hardware stub (no PMU path yet) and kperf only
 +#     builds because of it.
 +#   * sweet_hfs / mockfs / bindfs: the inherited sweet filesystem stack. It is
-+#     SoC-independent, but it carries the sweet_* source names - retarget the
++#     SoC-independent, but it carries the fuxi_* source names - retarget the
 +#     drivers, not this list.
 +#   * config_pmap_ppl (KERNEL_BASE): PPL/XNU_MONITOR is off for both sweet and
 +#     fuxi (NO_MONITOR in the board header). Revisit if a PPL build is wanted.
@@ -179,7 +179,7 @@ new file mode 100644
 index 0000000..a589227
 --- /dev/null
 +++ b/pexpert/pexpert/arm64/FUXI.h
-@@ -0,0 +1,129 @@
+@@ -0,0 +1,125 @@
 +/*
 + * Board config for the Xiaomi 13 ("fuxi", Qualcomm SM8550 / Snapdragon 8 Gen 2,
 + * "kalama"): 8 cores - 1x Cortex-X3 + 2x Cortex-A715 + 2x Cortex-A710 +
@@ -212,8 +212,8 @@ index 0000000..a589227
 +
 +/*
 + * fuxi inherits the sweet (SM7150) bring-up: the Qualcomm driver stack added
-+ * by the 0003-0093 patch series (sweet_ufs, AppleKeyStore, IOSurface/IOMFB,
-+ * IOWatchdog, SweetPlatformExpert/CPU, AMFI, ...) is gated on the sweet board
++ * by the 0003-0093 patch series (fuxi_ufs, AppleKeyStore, IOSurface/IOMFB,
++ * IOWatchdog, FuxiPlatformExpert/CPU, AMFI, ...) is gated on the sweet board
 + * macros. Keep both defined so those drivers build into the FUXI kernel.
 + *
 + *   FUXI  - the SM8550 board; new/retargeted code should gate on this.
@@ -232,7 +232,7 @@ index 0000000..a589227
 + * `&& !defined(ARM64_BOARD_CONFIG_FUXI)` guard), so the shared SWEET bridge
 + * needs this one here: iokit/Kernel/arm/FuxiCPU.cpp and
 + * osfmk/arm64/machine_routines.c both use it. Same value as SWEET.h. */
-+#define SWEET_SMP_MAX_CPUS         8
++#define FUXI_SMP_MAX_CPUS         8
 +
 +#define ARM_ARCH_TIMER
 +/* TODO fuxi: SM8550 is ARMv9-A; this is XNU's internal version macro and is
@@ -261,20 +261,16 @@ index 0000000..a589227
 + * uses (CNTV) is INTID 16 + 11 = 27 and the physical timer is 16 + 14 = 30.
 + * (sweet used Qualcomm's 1/2/3/0 numbering -> 19.)
 + *
-+ * The kernel name SWEET_VTIMER_INTID is kept because the inherited sleh_irq()
-+ * and the ADT virtual-timer plumbing reference it; FUXI_VTIMER_INTID is the
-+ * same value for new code.
++ * FUXI_VTIMER_INTID is what sleh_irq() and the ADT virtual-timer plumbing use.
 + *
 + * INFERRED: from the fuxi vendor device tree (via the M1 shim retarget).
 + * TODO fuxi: confirm at runtime against the ADT `gic` node's
 + * `virtual-timer-intid` (patch 0017 reads it from the device tree).
 + */
-+#define SWEET_VTIMER_INTID        27
-+#define FUXI_VTIMER_INTID         27
++#define FUXI_VTIMER_INTID        27
 +
 +/* SGI used for cross-CPU signals. TODO fuxi: confirm (kept from sweet). */
-+#define SWEET_IPI_SGI             1
-+#define FUXI_IPI_SGI              1
++#define FUXI_IPI_SGI             1
 +
 +#define GIC_SPURIOUS_IRQ          1023    // IRQ no. for GIC spurious interrupt
 +

@@ -11,21 +11,21 @@ diff --git a/iokit/Kernel/arm/FuxiSurface.cpp b/iokit/Kernel/arm/FuxiSurface.cpp
 index bacf85e..f10f548 100644
 --- a/iokit/Kernel/arm/FuxiSurface.cpp
 +++ b/iokit/Kernel/arm/FuxiSurface.cpp
-@@ -76,8 +76,7 @@ static uint32_t      sweet_surface_creates_logged;
- static uint64_t      sweet_surface_wired;       /* bytes of buffer surfaces */
- #define SWEET_SURFACE_WIRED_MAX         (1536ull << 20)
+@@ -76,8 +76,7 @@ static uint32_t      fuxi_surface_creates_logged;
+ static uint64_t      fuxi_surface_wired;       /* bytes of buffer surfaces */
+ #define FUXI_SURFACE_WIRED_MAX         (1536ull << 20)
  
 -/* topaz scanout pool: 6 x 16 MiB at 0xb0000000 (sweet's old low-memory kernel window) */
--#define SWEET_SCANOUT_BASE      0xb0000000ull
+-#define FUXI_SCANOUT_BASE      0xb0000000ull
 +/* topaz scanout: at most 6 contiguous 16 MiB surfaces */
- #define SWEET_SCANOUT_SLOT      (16u << 20)
- #define SWEET_SCANOUT_SLOTS     6
- static uint32_t sweet_scanout_used;             /* bit per slot, sweet_surface_lock */
+ #define FUXI_SCANOUT_SLOT      (16u << 20)
+ #define FUXI_SCANOUT_SLOTS     6
+ static uint32_t fuxi_scanout_used;             /* bit per slot, fuxi_surface_lock */
 @@ -754,8 +753,23 @@ IOSurfaceRootUserClient::create(IOExternalMethodArguments *args)
- 	if (ret == kIOReturnSuccess && sweet_scanout_eligible(s)) {
- 		int slot = sweet_scanout_alloc_slot();
+ 	if (ret == kIOReturnSuccess && fuxi_scanout_eligible(s)) {
+ 		int slot = fuxi_scanout_alloc_slot();
  		if (slot >= 0) {
--			uint64_t pa = SWEET_SCANOUT_BASE + (uint64_t)slot * SWEET_SCANOUT_SLOT;
+-			uint64_t pa = FUXI_SCANOUT_BASE + (uint64_t)slot * FUXI_SCANOUT_SLOT;
 -			s->memory = IOMemoryDescriptor::withPhysicalAddress(pa, s->allocSize, kIODirectionInOut);
 +			/*
 +			 * Real RAM, physically contiguous and below 4 GiB (the display SMMU is
@@ -41,7 +41,7 @@ index bacf85e..f10f548 100644
 +				cmem = NULL;
 +			}
 +			if (cmem != NULL) {
-+				OSAddAtomic64(s->allocSize, (volatile SInt64 *)&sweet_surface_wired);
++				OSAddAtomic64(s->allocSize, (volatile SInt64 *)&fuxi_surface_wired);
 +			}
 +			s->memory = cmem;
  			if (s->memory != NULL) {

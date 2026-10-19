@@ -83,7 +83,7 @@
 +	return kIOReturnSuccess;
 +}
 +
-+static uint64_t sweet_wdt_logged;       /* selectors already logged (< 64) */
++static uint64_t fuxi_wdt_logged;       /* selectors already logged (< 64) */
 +
 +IOReturn
 +IOWatchdogUserClient::externalMethod(uint32_t selector, IOExternalMethodArguments *args,
@@ -103,9 +103,9 @@
 +		bzero(args->structureOutput, args->structureOutputSize);
 +	}
 +
-+	if (selector >= 64 || !(sweet_wdt_logged & (1ULL << selector))) {
++	if (selector >= 64 || !(fuxi_wdt_logged & (1ULL << selector))) {
 +		if (selector < 64) {
-+			sweet_wdt_logged |= 1ULL << selector;
++			fuxi_wdt_logged |= 1ULL << selector;
 +		}
 +		char name[32];
 +		proc_selfname(name, sizeof(name));

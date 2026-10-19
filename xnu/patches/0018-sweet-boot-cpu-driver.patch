@@ -21,8 +21,8 @@ new file mode 100644
 +#include <kern/processor.h>
 +#include <mach/mach_time.h>
 +
-+class SweetCPU : public IOCPU {
-+	OSDeclareDefaultStructors(SweetCPU);
++class FuxiCPU : public IOCPU {
++	OSDeclareDefaultStructors(FuxiCPU);
 +	const OSSymbol *cpuName = NULL;
 +
 +public:
@@ -36,10 +36,10 @@ new file mode 100644
 +	const OSSymbol *getCPUName(void) APPLE_KEXT_OVERRIDE;
 +};
 +
-+OSDefineMetaClassAndStructors(SweetCPU, IOCPU);
++OSDefineMetaClassAndStructors(FuxiCPU, IOCPU);
 +
 +bool
-+SweetCPU::start(IOService *provider)
++FuxiCPU::start(IOService *provider)
 +{
 +	const ml_topology_info_t *topology = ml_get_topology_info();
 +	const ml_topology_cpu_t *cpu = topology->boot_cpu;
@@ -100,14 +100,14 @@ new file mode 100644
 +}
 +
 +void
-+SweetCPU::free(void)
++FuxiCPU::free(void)
 +{
 +	OSSafeReleaseNULL(cpuName);
 +	IOCPU::free();
 +}
 +
 +void
-+SweetCPU::initCPU(bool boot)
++FuxiCPU::initCPU(bool boot)
 +{
 +	if (!boot) {
 +		panic("FUXI CPU: resume is not implemented");
@@ -130,7 +130,7 @@ new file mode 100644
 +}
 +
 +void
-+SweetCPU::signalCPU(IOCPU *target)
++FuxiCPU::signalCPU(IOCPU *target)
 +{
 +	/* Only the boot CPU is registered by this driver. */
 +	if (target != this || cpu_number() != (int)getCPUNumber()) {
@@ -144,32 +144,32 @@ new file mode 100644
 +	uint64_t sgi = (((mpidr >> 32) & 0xff) << 48) |
 +	    (((mpidr >> 16) & 0xff) << 32) |
 +	    (((mpidr >> 8) & 0xff) << 16) |
-+	    ((uint64_t)SWEET_IPI_SGI << 24) | (1ULL << aff0);
++	    ((uint64_t)FUXI_IPI_SGI << 24) | (1ULL << aff0);
 +	__builtin_arm_dsb(DSB_ISHST);
 +	__builtin_arm_wsr64("ICC_SGI1R_EL1", sgi);
 +	__builtin_arm_isb(ISB_SY);
 +}
 +
 +kern_return_t
-+SweetCPU::startCPU(vm_offset_t start_paddr __unused, vm_offset_t arg_paddr __unused)
++FuxiCPU::startCPU(vm_offset_t start_paddr __unused, vm_offset_t arg_paddr __unused)
 +{
 +	return KERN_NOT_SUPPORTED;
 +}
 +
 +void
-+SweetCPU::quiesceCPU(void)
++FuxiCPU::quiesceCPU(void)
 +{
 +	panic("FUXI CPU: CPU quiesce is not implemented");
 +}
 +
 +void
-+SweetCPU::haltCPU(void)
++FuxiCPU::haltCPU(void)
 +{
 +	panic("FUXI CPU: CPU halt/suspend is not implemented");
 +}
 +
 +const OSSymbol *
-+SweetCPU::getCPUName(void)
++FuxiCPU::getCPUName(void)
 +{
 +	return cpuName;
 +}
@@ -182,7 +182,7 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
      "     'IOProbeScore'    = 10000:32;"
      "   },"
 +    "   {"
-+    "     'IOClass'         = SweetCPU;"
++    "     'IOClass'         = FuxiCPU;"
 +    "     'IOProviderClass' = IOPlatformDevice;"
 +    "     'IONameMatch'     = 'qcom,kryo470';"
 +    "     'IOProbeScore'    = 10000:32;"

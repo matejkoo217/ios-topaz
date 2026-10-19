@@ -11,7 +11,7 @@
 +	 * read aborts on the bus -- a synchronous external abort (ESR 0x96000010,
 +	 * DFSC 0x10) that panics before the console is up:
 +	 *
-+	 *   panic: Kernel data abort. at pc ...74ed41c <sweet_i2c1_init+0x9c>
++	 *   panic: Kernel data abort. at pc ...74ed41c <fuxi_i2c1_init+0x9c>
 +	 *   ldr w9, [x8, x22]   ; x8 = ml_io_map(0x01400000, 0x80000), x22 = 0x7900c
 +	 *
 +	 * The fuxi battery/charger bus is a separate job (SM8550 PMIC with its own

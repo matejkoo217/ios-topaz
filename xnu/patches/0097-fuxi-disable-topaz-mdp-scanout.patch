@@ -25,7 +25,7 @@
  	if (fVig0 != NULL && fCtl0 != NULL) {
 @@ -213,6 +229,7 @@
  		    fBootSrc, fBootStride);
- 		sweet_scanout_set_geometry(fWidth, fHeight, fLogicalW, fLogicalH);
+ 		fuxi_scanout_set_geometry(fWidth, fHeight, fLogicalW, fLogicalH);
  	}
 +#endif
  	uint32_t hz = 10;

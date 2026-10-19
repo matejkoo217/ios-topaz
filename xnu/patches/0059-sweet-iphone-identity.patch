@@ -21,13 +21,13 @@
 -	bool getProductName(char *name, int maxLength) APPLE_KEXT_OVERRIDE;
  };
  
- OSDefineMetaClassAndStructors(SweetPlatformExpert, IODTPlatformExpert);
+ OSDefineMetaClassAndStructors(FuxiPlatformExpert, IODTPlatformExpert);
 @@ -76,23 +74,9 @@
  	}
  }
  
 -bool
--SweetPlatformExpert::getTargetName(char *name, int maxLength)
+-FuxiPlatformExpert::getTargetName(char *name, int maxLength)
 -{
 -	if (name == NULL || maxLength <= 0) {
 -		return false;
@@ -37,7 +37,7 @@
 -}
 -
 -bool
--SweetPlatformExpert::getProductName(char *name, int maxLength)
+-FuxiPlatformExpert::getProductName(char *name, int maxLength)
 -{
 -	if (name == NULL || maxLength <= 0) {
 -		return false;

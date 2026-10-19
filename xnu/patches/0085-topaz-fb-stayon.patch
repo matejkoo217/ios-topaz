@@ -3,7 +3,7 @@ index a62416c..2094443 100644
 --- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
 +++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
 @@ -535,6 +535,15 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
- 	case kSweetFBRequestPowerChange:
+ 	case kFuxiFBRequestPowerChange:
  		if (args->scalarInputCount >= 1) {
  			bool off = args->scalarInput[0] == 0;
 +			/*

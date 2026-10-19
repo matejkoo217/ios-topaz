@@ -6,7 +6,7 @@
  
 -	if (sig == 6) {
 +	if (sig == 6 || sig == 5) {
- 		sweet_crash_strings(name);
+ 		fuxi_crash_strings(name);
  	}
  }
  

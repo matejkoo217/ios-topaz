@@ -1,11 +1,11 @@
 --- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
 +++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
 @@ -61,7 +61,17 @@
- #define SWEET_FB_NOTIFY_TYPES           8
- #define SWEET_FB_NOTIFY_VSYNC           5
- #define SWEET_FB_VSYNC_US               16667
--#define SWEET_FB_DOT_PITCH              395     /* ppi, 6.67" 1080x2400 */
-+#define SWEET_FB_DOT_PITCH              458     /* ppi, as the iPhone X panel */
+ #define FUXI_FB_NOTIFY_TYPES           8
+ #define FUXI_FB_NOTIFY_VSYNC           5
+ #define FUXI_FB_VSYNC_US               16667
+-#define FUXI_FB_DOT_PITCH              395     /* ppi, 6.67" 1080x2400 */
++#define FUXI_FB_DOT_PITCH              458     /* ppi, as the iPhone X panel */
 +/*
 + * The iOS userland only has status bar / layout data for real iPhone
 + * screens (UIKit: "No status bar visual provider for screen", the red
@@ -14,9 +14,9 @@
 + * centered 1080x2400 part of it is shown on the 1080x2400 panel.
 + * Boot-arg sweetfb_native=1 presents the real panel size instead.
 + */
-+#define SWEET_FB_LOGICAL_W              1125
-+#define SWEET_FB_LOGICAL_H              2436
- #define SWEET_FB_FORMAT_BGRA            0x42475241
++#define FUXI_FB_LOGICAL_W              1125
++#define FUXI_FB_LOGICAL_H              2436
+ #define FUXI_FB_FORMAT_BGRA            0x42475241
  
  class IOMobileFramebuffer : public IOService {
 @@ -84,6 +94,8 @@
@@ -27,7 +27,7 @@
 +	int32_t       fOffX, fOffY;             /* logical origin of the panel */
  	uintptr_t     fPixels;          /* kernel mapping of the panel memory */
  	IOMemoryMap  *fMap;
- 	SweetSurface *fSurface;         /* the panel memory as an IOSurface */
+ 	FuxiSurface *fSurface;         /* the panel memory as an IOSurface */
 @@ -144,6 +156,16 @@
  		IOLog("FUXI FB: no boot framebuffer\n");
  		return false;
@@ -36,15 +36,15 @@
 +	PE_parse_boot_argn("sweetfb_native", &native, sizeof(native));
 +	fLogicalW = fWidth;
 +	fLogicalH = fHeight;
-+	if (!native && fWidth <= SWEET_FB_LOGICAL_W && fHeight <= SWEET_FB_LOGICAL_H) {
-+		fLogicalW = SWEET_FB_LOGICAL_W;
-+		fLogicalH = SWEET_FB_LOGICAL_H;
++	if (!native && fWidth <= FUXI_FB_LOGICAL_W && fHeight <= FUXI_FB_LOGICAL_H) {
++		fLogicalW = FUXI_FB_LOGICAL_W;
++		fLogicalH = FUXI_FB_LOGICAL_H;
 +	}
 +	fOffX = (int32_t)(fLogicalW - fWidth) / 2;
 +	fOffY = (int32_t)(fLogicalH - fHeight) / 2;
  	fLock = IOLockAlloc();
  	fClients = OSArray::withCapacity(4);
- 	fSurface = sweet_surface_create_physical(fPhys, fWidth, fHeight, fRowBytes, SWEET_FB_FORMAT_BGRA);
+ 	fSurface = fuxi_surface_create_physical(fPhys, fWidth, fHeight, fRowBytes, FUXI_FB_FORMAT_BGRA);
 @@ -169,8 +191,8 @@
  	setProperty("external", false);
  	setProperty("DisplayPipePlaneBaseAlignment", 64ULL, 32);
@@ -79,14 +79,14 @@
 @@ -444,8 +479,8 @@
  		outCount = 1;
  		break;
- 	case kSweetFBGetDisplaySize:
+ 	case kFuxiFBGetDisplaySize:
 -		out[0] = fFB->fWidth;
 -		out[1] = fFB->fHeight;
 +		out[0] = fFB->fLogicalW;
 +		out[1] = fFB->fLogicalH;
  		outCount = 2;
  		break;
- 	case kSweetFBIsMainDisplay:
+ 	case kFuxiFBIsMainDisplay:
 --- a/iokit/Kernel/arm/hid/FuxiHID.cpp
 +++ b/iokit/Kernel/arm/hid/FuxiHID.cpp
 @@ -359,6 +359,7 @@
@@ -94,9 +94,9 @@
  private:
  	IOLock *fLock;
 +	int fLogicalW, fLogicalH, fOffX, fOffY;
- 	bool fDown[SWEET_TOUCH_FINGERS];
- 	IOFixed fX[SWEET_TOUCH_FINGERS];
- 	IOFixed fY[SWEET_TOUCH_FINGERS];
+ 	bool fDown[FUXI_TOUCH_FINGERS];
+ 	IOFixed fX[FUXI_TOUCH_FINGERS];
+ 	IOFixed fY[FUXI_TOUCH_FINGERS];
 @@ -422,6 +423,12 @@
  	if (!fLock || !IOHIDEventService::start(provider)) {
  		return false;

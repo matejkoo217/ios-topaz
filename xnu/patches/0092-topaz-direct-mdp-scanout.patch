@@ -5,7 +5,7 @@ index 2094443..bd72f09 100644
 @@ -37,6 +37,8 @@
  #include "FuxiSurface.h"
  
- extern "C" int sweet_console_muted;     /* osfmk/console/serial_console.c */
+ extern "C" int fuxi_console_muted;     /* osfmk/console/serial_console.c */
 +extern "C" void flush_dcache64(addr64_t addr, unsigned count, int phys);  /* osfmk/arm/caches.c */
 +extern "C" vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
  
@@ -13,7 +13,7 @@ index 2094443..bd72f09 100644
  #include <IOKit/IOService.h>
 @@ -113,6 +115,14 @@ public:
  	bool          fConsolePaused;
- 	uint8_t       fPending[SWEET_FB_SWAP_REC_SIZE];     /* latest swap, not yet shown */
+ 	uint8_t       fPending[FUXI_FB_SWAP_REC_SIZE];     /* latest swap, not yet shown */
  	bool          fDirty;
 +	/* topaz direct MDP scanout (VIG0 / CTL0 from TopazGpuW disp.c) */
 +	volatile uint32_t *fVig0;
@@ -39,13 +39,13 @@ index 2094443..bd72f09 100644
 +		fScanStride = fBootStride;
 +		IOLog("FUXI FB: MDP VIG0 src %#x stride %u (boot), direct scanout ready\n",
 +		    fBootSrc, fBootStride);
-+		sweet_scanout_set_geometry(fWidth, fHeight, fLogicalW, fLogicalH);
++		fuxi_scanout_set_geometry(fWidth, fHeight, fLogicalW, fLogicalH);
 +	}
  	uint32_t hz = 10;
  	PE_parse_boot_argn("sweetfb_hz", &hz, sizeof(hz));
  	fFlushTicks = (hz == 0 || hz >= 60) ? 1 : 60 / hz;
 @@ -225,6 +246,9 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
- 		client->notify(SWEET_FB_NOTIFY_VSYNC, values, 6);
+ 		client->notify(FUXI_FB_NOTIFY_VSYNC, values, 6);
  	}
  	if (fb->fPowerOff) {
 +		if (fb->fVig0 != NULL && fb->fScanPhys != fb->fBootSrc) {
@@ -82,7 +82,7 @@ index 2094443..bd72f09 100644
 +		return false;
 +	}
 +	uint32_t mask = get32(rec, 0x104), layer = 32, n = 0;
-+	for (uint32_t i = 0; i < SWEET_FB_LAYERS; i++) {
++	for (uint32_t i = 0; i < FUXI_FB_LAYERS; i++) {
 +		if ((mask & (1u << i)) && get32(rec, 0x54 + 4 * i) != 0) {
 +			layer = i;
 +			n++;
@@ -91,7 +91,7 @@ index 2094443..bd72f09 100644
 +	if (n != 1) {
 +		return false;
 +	}
-+	SweetSurface *s = sweet_surface_copy(get32(rec, 0x54 + 4 * layer));
++	FuxiSurface *s = fuxi_surface_copy(get32(rec, 0x54 + 4 * layer));
 +	if (s == NULL) {
 +		return false;
 +	}
@@ -126,7 +126,7 @@ index 2094443..bd72f09 100644
 +			int quiet = 0;
 +			fConsolePaused = true;
 +			if (PE_parse_boot_argn("sweetfb_noconsole", &quiet, sizeof(quiet)) && quiet != 0) {
-+				sweet_console_muted = 1;
++				fuxi_console_muted = 1;
 +			}
 +		}
 +		return;
@@ -151,41 +151,41 @@ index 7f90c56..bacf85e 100644
  #include <libkern/c++/OSArray.h>
  #include <libkern/c++/OSDictionary.h>
  #include <libkern/c++/OSNumber.h>
-@@ -75,6 +76,70 @@ static uint32_t      sweet_surface_creates_logged;
- static uint64_t      sweet_surface_wired;       /* bytes of buffer surfaces */
- #define SWEET_SURFACE_WIRED_MAX         (1536ull << 20)
+@@ -75,6 +76,70 @@ static uint32_t      fuxi_surface_creates_logged;
+ static uint64_t      fuxi_surface_wired;       /* bytes of buffer surfaces */
+ #define FUXI_SURFACE_WIRED_MAX         (1536ull << 20)
  
 +/* topaz scanout pool: 6 x 16 MiB at 0xb0000000 (sweet's old low-memory kernel window) */
-+#define SWEET_SCANOUT_BASE      0xb0000000ull
-+#define SWEET_SCANOUT_SLOT      (16u << 20)
-+#define SWEET_SCANOUT_SLOTS     6
-+static uint32_t sweet_scanout_used;             /* bit per slot, sweet_surface_lock */
-+static uint32_t sweet_scanout_w[2], sweet_scanout_h[2];
-+static int      sweet_scanout_enabled = -1;
++#define FUXI_SCANOUT_BASE      0xb0000000ull
++#define FUXI_SCANOUT_SLOT      (16u << 20)
++#define FUXI_SCANOUT_SLOTS     6
++static uint32_t fuxi_scanout_used;             /* bit per slot, fuxi_surface_lock */
++static uint32_t fuxi_scanout_w[2], fuxi_scanout_h[2];
++static int      fuxi_scanout_enabled = -1;
 +
 +void
-+sweet_scanout_set_geometry(uint32_t w1, uint32_t h1, uint32_t w2, uint32_t h2)
++fuxi_scanout_set_geometry(uint32_t w1, uint32_t h1, uint32_t w2, uint32_t h2)
 +{
-+	sweet_scanout_w[0] = w1;
-+	sweet_scanout_h[0] = h1;
-+	sweet_scanout_w[1] = w2;
-+	sweet_scanout_h[1] = h2;
++	fuxi_scanout_w[0] = w1;
++	fuxi_scanout_h[0] = h1;
++	fuxi_scanout_w[1] = w2;
++	fuxi_scanout_h[1] = h2;
 +}
 +
 +static bool
-+sweet_scanout_eligible(const SweetSurface *s)
++fuxi_scanout_eligible(const FuxiSurface *s)
 +{
-+	if (sweet_scanout_enabled < 0) {
++	if (fuxi_scanout_enabled < 0) {
 +		int on = 1;
 +		PE_parse_boot_argn("sweetfb_direct", &on, sizeof(on));
-+		sweet_scanout_enabled = on;
++		fuxi_scanout_enabled = on;
 +	}
-+	if (!sweet_scanout_enabled || s->bytesPerElement != 4 || s->planeCount > 1 ||
-+	    s->elementWidth != 1 || s->elementHeight != 1 || s->allocSize > SWEET_SCANOUT_SLOT) {
++	if (!fuxi_scanout_enabled || s->bytesPerElement != 4 || s->planeCount > 1 ||
++	    s->elementWidth != 1 || s->elementHeight != 1 || s->allocSize > FUXI_SCANOUT_SLOT) {
 +		return false;
 +	}
 +	for (int i = 0; i < 2; i++) {
-+		if (sweet_scanout_w[i] && s->width == sweet_scanout_w[i] && s->height == sweet_scanout_h[i]) {
++		if (fuxi_scanout_w[i] && s->width == fuxi_scanout_w[i] && s->height == fuxi_scanout_h[i]) {
 +			return true;
 +		}
 +	}
@@ -193,62 +193,62 @@ index 7f90c56..bacf85e 100644
 +}
 +
 +static int
-+sweet_scanout_alloc_slot(void)
++fuxi_scanout_alloc_slot(void)
 +{
 +	int slot = -1;
-+	IOLockLock(sweet_surface_lock);
-+	for (int i = 0; i < SWEET_SCANOUT_SLOTS; i++) {
-+		if (!(sweet_scanout_used & (1u << i))) {
-+			sweet_scanout_used |= 1u << i;
++	IOLockLock(fuxi_surface_lock);
++	for (int i = 0; i < FUXI_SCANOUT_SLOTS; i++) {
++		if (!(fuxi_scanout_used & (1u << i))) {
++			fuxi_scanout_used |= 1u << i;
 +			slot = i;
 +			break;
 +		}
 +	}
-+	IOLockUnlock(sweet_surface_lock);
++	IOLockUnlock(fuxi_surface_lock);
 +	return slot;
 +}
 +
 +static void
-+sweet_scanout_free_slot(int slot)
++fuxi_scanout_free_slot(int slot)
 +{
 +	if (slot < 0) {
 +		return;
 +	}
-+	IOLockLock(sweet_surface_lock);
-+	sweet_scanout_used &= ~(1u << slot);
-+	IOLockUnlock(sweet_surface_lock);
++	IOLockLock(fuxi_surface_lock);
++	fuxi_scanout_used &= ~(1u << slot);
++	IOLockUnlock(fuxi_surface_lock);
 +}
 +
- OSDefineMetaClassAndStructors(SweetSurface, OSObject);
+ OSDefineMetaClassAndStructors(FuxiSurface, OSObject);
  
  void
-@@ -86,6 +151,8 @@ SweetSurface::free()
+@@ -86,6 +151,8 @@ FuxiSurface::free()
  	OSSafeReleaseNULL(kernelMap);
  	OSSafeReleaseNULL(memory);
  	OSSafeReleaseNULL(state);
-+	sweet_scanout_free_slot(scanoutSlot);
++	fuxi_scanout_free_slot(scanoutSlot);
 +	scanoutSlot = -1;
  	OSObject::free();
  }
  
-@@ -98,7 +165,7 @@ SweetSurface::kernelAddress()
+@@ -98,7 +165,7 @@ FuxiSurface::kernelAddress()
  	}
- 	IOLockLock(sweet_surface_lock);
+ 	IOLockLock(fuxi_surface_lock);
  	if (kernelMap == NULL && memory != NULL) {
 -		kernelMap = memory->map(kIOMapWriteCombineCache);
 +		kernelMap = memory->map(scanoutPhys ? kIOMapDefaultCache : kIOMapWriteCombineCache);
  	}
- 	IOLockUnlock(sweet_surface_lock);
+ 	IOLockUnlock(fuxi_surface_lock);
  	return kernelMap != NULL ? (uintptr_t)kernelMap->getVirtualAddress() : 0;
 @@ -684,7 +751,28 @@ IOSurfaceRootUserClient::create(IOExternalMethodArguments *args)
  	}
  	s->parentID = args->scalarInputCount > 0 ? (uint32_t)args->scalarInput[0] : 0;
- 	ret = sweet_surface_layout(s, props);
+ 	ret = fuxi_surface_layout(s, props);
 -	if (ret == kIOReturnSuccess) {
-+	if (ret == kIOReturnSuccess && sweet_scanout_eligible(s)) {
-+		int slot = sweet_scanout_alloc_slot();
++	if (ret == kIOReturnSuccess && fuxi_scanout_eligible(s)) {
++		int slot = fuxi_scanout_alloc_slot();
 +		if (slot >= 0) {
-+			uint64_t pa = SWEET_SCANOUT_BASE + (uint64_t)slot * SWEET_SCANOUT_SLOT;
++			uint64_t pa = FUXI_SCANOUT_BASE + (uint64_t)slot * FUXI_SCANOUT_SLOT;
 +			s->memory = IOMemoryDescriptor::withPhysicalAddress(pa, s->allocSize, kIODirectionInOut);
 +			if (s->memory != NULL) {
 +				s->scanoutPhys = pa;
@@ -258,18 +258,18 @@ index 7f90c56..bacf85e 100644
 +				if (va != 0) {
 +					bzero((void *)va, s->allocSize);
 +				}
-+				if (!sweet_surface_publish(s)) {
++				if (!fuxi_surface_publish(s)) {
 +					ret = kIOReturnNoResources;
 +				}
 +			} else {
-+				sweet_scanout_free_slot(slot);
++				fuxi_scanout_free_slot(slot);
 +			}
 +		}
 +	}
 +	if (ret == kIOReturnSuccess && s->memory == NULL) {
  		IOBufferMemoryDescriptor *mem = NULL;
- 		if ((uint64_t)OSAddAtomic64(s->allocSize, (volatile SInt64 *)&sweet_surface_wired) +
- 		    s->allocSize <= SWEET_SURFACE_WIRED_MAX) {
+ 		if ((uint64_t)OSAddAtomic64(s->allocSize, (volatile SInt64 *)&fuxi_surface_wired) +
+ 		    s->allocSize <= FUXI_SURFACE_WIRED_MAX) {
 diff --git a/iokit/Kernel/arm/FuxiSurface.h b/iokit/Kernel/arm/FuxiSurface.h
 index fbcdfac..10b39eb 100644
 --- a/iokit/Kernel/arm/FuxiSurface.h
@@ -286,8 +286,8 @@ index fbcdfac..10b39eb 100644
  	void free() APPLE_KEXT_OVERRIDE;
  
  	/* Kernel address of the pixels (mapped on first use), or 0. */
-@@ -58,6 +60,13 @@ SweetSurface *sweet_surface_copy(uint32_t id);
- SweetSurface *sweet_surface_create_physical(uint64_t phys, uint32_t width,
+@@ -58,6 +60,13 @@ FuxiSurface *fuxi_surface_copy(uint32_t id);
+ FuxiSurface *fuxi_surface_create_physical(uint64_t phys, uint32_t width,
      uint32_t height, uint32_t bytesPerRow, uint32_t pixelFormat);
  
 +/*
@@ -295,8 +295,8 @@ index fbcdfac..10b39eb 100644
 + * xnu, which runs in the upper DDR bank) so the MDP can fetch a surface
 + * directly. The framebuffer sets the full-screen geometry it can scan out.
 + */
-+void sweet_scanout_set_geometry(uint32_t w1, uint32_t h1, uint32_t w2, uint32_t h2);
++void fuxi_scanout_set_geometry(uint32_t w1, uint32_t h1, uint32_t w2, uint32_t h2);
 +
  /* Send right for the surface in task (IOSurfaceLookupFromMachPort). */
- mach_port_name_t sweet_surface_port_in_task(SweetSurface *surface, task_t task);
+ mach_port_name_t fuxi_surface_port_in_task(FuxiSurface *surface, task_t task);
  

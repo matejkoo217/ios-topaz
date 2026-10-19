@@ -50,12 +50,12 @@ index b7be070..467ce46 100644
  		return 0;
  	}
  	printf("FUXI UFS: no GPT partition named \"%s\"\n", want);
-@@ -583,6 +601,40 @@ static const struct cdevsw sweet_ufs_cdevsw = {
+@@ -583,6 +601,40 @@ static const struct cdevsw fuxi_ufs_cdevsw = {
  	.d_type       = D_DISK,
  };
  
 +static void
-+sweet_gpt_watch(__unused void *arg, __unused wait_result_t wr)
++fuxi_gpt_watch(__unused void *arg, __unused wait_result_t wr)
 +{
 +	const uint8_t *b = (const uint8_t *)(su.dma + DMA_BOUNCE);
 +	uint64_t start = mach_absolute_time();
@@ -67,7 +67,7 @@ index b7be070..467ce46 100644
 +
 +		uint32_t h = 0, e = 0, bh = 0;
 +		bool ok;
-+		lck_mtx_lock(&sweet_ufs_lock);
++		lck_mtx_lock(&fuxi_ufs_lock);
 +		ok = ufs_read_blocks(1, 1) == 0 && memcmp(b, "EFI PART", 8) == 0;
 +		if (ok) {
 +			memcpy(&h, b + 16, 4);
@@ -78,7 +78,7 @@ index b7be070..467ce46 100644
 +				memcpy(&bh, b + 16, 4);
 +			}
 +		}
-+		lck_mtx_unlock(&sweet_ufs_lock);
++		lck_mtx_unlock(&fuxi_ufs_lock);
 +		if (!ok || h != gpt_hcrc || e != gpt_ecrc || (gpt_bhcrc && bh != gpt_bhcrc)) {
 +			uint64_t ns;
 +			absolutetime_to_nanoseconds(mach_absolute_time() - start, &ns);
@@ -89,14 +89,14 @@ index b7be070..467ce46 100644
 +}
 +
  static int
- sweet_ufs_init(void)
+ fuxi_ufs_init(void)
  {
-@@ -656,6 +708,10 @@ sweet_ufs_init(void)
+@@ -656,6 +708,10 @@ fuxi_ufs_init(void)
  	    su.writable ? "read-write" : "read-only", su.dma_pa);
- 	sweet_log_start();
- 	sweet_sample_start();
+ 	fuxi_log_start();
+ 	fuxi_sample_start();
 +	thread_t gpt_thread;
-+	if (kernel_thread_start(sweet_gpt_watch, NULL, &gpt_thread) == KERN_SUCCESS) {
++	if (kernel_thread_start(fuxi_gpt_watch, NULL, &gpt_thread) == KERN_SUCCESS) {
 +		thread_deallocate(gpt_thread);
 +	}
  	/*

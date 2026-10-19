@@ -14,9 +14,9 @@ index 03defe6..03064d7 100644
   * No firmware/config upload or direct PMIC writes. Only IC data write:
   * zero to GT9896's event status after reading a report. See touch2/report.md.
   */
-@@ -22,11 +24,15 @@ extern int sweet_rpmh_vreg_enable(const char *res, unsigned mv);
- extern void sweet_hid_touch(int finger, int down, int x, int y);
- void sweet_touch_init(void);
+@@ -22,11 +24,15 @@ extern int fuxi_rpmh_vreg_enable(const char *res, unsigned mv);
+ extern void fuxi_hid_touch(int finger, int down, int x, int y);
+ void fuxi_touch_init(void);
  
 -#define TOUCH_SE_PA      0x00a84000u
 -#define TOUCH_GCC_PA     0x00100000u
@@ -35,7 +35,7 @@ index 03defe6..03064d7 100644
  #define TOUCH_GPIO_CFG(n) ((uint32_t)(n) * 0x1000u)
  #define TOUCH_GPIO_IO(n)  (TOUCH_GPIO_CFG(n) + 4u)
  #define TOUCH_MAX        10u
-@@ -72,7 +78,7 @@ void sweet_touch_init(void);
+@@ -72,7 +78,7 @@ void fuxi_touch_init(void);
  #define SE_PACK1        0x000ffefeu
  
  static struct {
@@ -189,7 +189,7 @@ index 03defe6..03064d7 100644
 -	/* Keep the IC in reset while its rails settle; IRQ stays an input. */
 -	touch_gpio(9, 0, 3, 3, false, false); /* IRQ input, 8 mA, pull-up */
 -	touch_gpio(8, 0, 3, 3, true, false);
--	int power_error = sweet_rpmh_vreg_enable("ldoc11", 3200);
+-	int power_error = fuxi_rpmh_vreg_enable("ldoc11", 3200);
 -	if (power_error) {
 -		printf("FUXI TOUCH: L11C RPMh enable failed %d; probes skipped\n", power_error);
 -		goto out;
@@ -233,8 +233,8 @@ diff --git a/bsd/dev/fuxi_ufs.c b/bsd/dev/fuxi_ufs.c
 index 40044c8..af6e35c 100644
 --- a/bsd/dev/fuxi_ufs.c
 +++ b/bsd/dev/fuxi_ufs.c
-@@ -658,18 +658,18 @@ sweet_ufs_init(void)
- 	sweet_sample_start();
+@@ -658,18 +658,18 @@ fuxi_ufs_init(void)
+ 	fuxi_sample_start();
  	/*
  	 * Input drivers (HID services in iokit/Kernel/arm/hid/FuxiHID.cpp).
 -	 * They still poke SM7150 MMIO (SPMI, GENI SE7, DWC3 at 0xa600000); on
@@ -246,11 +246,11 @@ index 40044c8..af6e35c 100644
  	 */
  	int hw = 0;
  	(void)PE_parse_boot_argn("sweethw", &hw, sizeof(hw));
-+	sweet_touch_init();
++	fuxi_touch_init();
  	if (hw == 1) {
- 		sweet_keys_init();
--		sweet_touch_init();
- 		sweet_usb_probe();
+ 		fuxi_keys_init();
+-		fuxi_touch_init();
+ 		fuxi_usb_probe();
  	} else {
 -		printf("FUXI UFS: keys/touch/USB skipped (fuxi, sweethw=0)\n");
 +		printf("FUXI UFS: keys/USB skipped (fuxi, sweethw=0)\n");

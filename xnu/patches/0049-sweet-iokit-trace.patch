@@ -13,29 +13,29 @@
 + * "-" turns it off) are printed as "IOK name: ...", at most 400 lines per
 + * boot, to find out what a daemon looks for before it gives up.
 + */
-+static char sweet_iolog_names[128];
-+static int sweet_iolog_parsed;
-+static uint32_t sweet_iolog_lines;
++static char fuxi_iolog_names[128];
++static int fuxi_iolog_parsed;
++static uint32_t fuxi_iolog_lines;
 +
 +static bool
-+sweet_iolog(char *name, size_t len)
++fuxi_iolog(char *name, size_t len)
 +{
-+	if (!sweet_iolog_parsed) {
-+		if (!PE_parse_boot_argn("sweetiolog", sweet_iolog_names, sizeof(sweet_iolog_names))) {
-+			strlcpy(sweet_iolog_names, "backboardd", sizeof(sweet_iolog_names));
++	if (!fuxi_iolog_parsed) {
++		if (!PE_parse_boot_argn("sweetiolog", fuxi_iolog_names, sizeof(fuxi_iolog_names))) {
++			strlcpy(fuxi_iolog_names, "backboardd", sizeof(fuxi_iolog_names));
 +		}
-+		sweet_iolog_parsed = 1;
++		fuxi_iolog_parsed = 1;
 +	}
-+	if (sweet_iolog_lines >= 400) {
++	if (fuxi_iolog_lines >= 400) {
 +		return false;
 +	}
 +	proc_selfname(name, (int)len);
 +	size_t n = strlen(name);
-+	for (const char *t = sweet_iolog_names; *t;) {
++	for (const char *t = fuxi_iolog_names; *t;) {
 +		const char *end = strchr(t, ',');
 +		size_t tl = end ? (size_t)(end - t) : strlen(t);
 +		if (tl == n && n > 0 && strncmp(t, name, n) == 0) {
-+			sweet_iolog_lines++;
++			fuxi_iolog_lines++;
 +			return true;
 +		}
 +		if (!end) {
@@ -48,7 +48,7 @@
 +
 +/* Compact XML of a matching dictionary, at most 240 characters. */
 +static void
-+sweet_iolog_dict(const char *name, const char *what, OSObject *dict, const char *result)
++fuxi_iolog_dict(const char *name, const char *what, OSObject *dict, const char *result)
 +{
 +	OSSerialize *ser = OSSerialize::withCapacity(256);
 +	const char *text = "?";
@@ -72,7 +72,7 @@
 +		OSIterator *found = IOService::getMatchingServices( dict );
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +		char sname[32];
-+		if (sweet_iolog(sname, sizeof(sname))) {
++		if (fuxi_iolog(sname, sizeof(sname))) {
 +			unsigned int count = 0;
 +			if (found != NULL) {
 +				while (found->getNextObject() != NULL) {
@@ -82,7 +82,7 @@
 +			}
 +			char res[16];
 +			snprintf(res, sizeof(res), "%u found", count);
-+			sweet_iolog_dict(sname, "matching", dict, res);
++			fuxi_iolog_dict(sname, "matching", dict, res);
 +		}
 +#endif
 +		*existing = IOUserIterator::withIterator(found);
@@ -95,8 +95,8 @@
  		kr = *service ? kIOReturnSuccess : kIOReturnNotFound;
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +		char sname[32];
-+		if (sweet_iolog(sname, sizeof(sname))) {
-+			sweet_iolog_dict(sname, "matching1", dict,
++		if (fuxi_iolog(sname, sizeof(sname))) {
++			fuxi_iolog_dict(sname, "matching1", dict,
 +			    *service ? (*service)->getMetaClass()->getClassName() : "none");
 +		}
 +#endif
@@ -110,8 +110,8 @@
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +		{
 +			char sname[32];
-+			if (sweet_iolog(sname, sizeof(sname))) {
-+				sweet_iolog_dict(sname, notification_type, dict, "notify");
++			if (fuxi_iolog(sname, sizeof(sname))) {
++				fuxi_iolog_dict(sname, notification_type, dict, "notify");
 +			}
 +		}
 +#endif
@@ -125,7 +125,7 @@
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +	{
 +		char sname[32];
-+		if (sweet_iolog(sname, sizeof(sname))) {
++		if (fuxi_iolog(sname, sizeof(sname))) {
 +			IOLog("IOK %s: path %.200s -> %s\n", sname, path,
 +			    entry ? entry->getMetaClass()->getClassName() : "none");
 +		}
@@ -141,7 +141,7 @@
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +	{
 +		char sname[32];
-+		if (sweet_iolog(sname, sizeof(sname))) {
++		if (fuxi_iolog(sname, sizeof(sname))) {
 +			IOLog("IOK %s: children of %s in %.32s\n", sname, entry->getName(), plane);
 +		}
 +	}
@@ -156,7 +156,7 @@
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +		{
 +			char sname[32];
-+			if (sweet_iolog(sname, sizeof(sname))) {
++			if (fuxi_iolog(sname, sizeof(sname))) {
 +				IOLog("IOK %s: open %s type %u -> 0x%x\n", sname,
 +				    service->getMetaClass()->getClassName(), connect_type, res);
 +			}

@@ -16,10 +16,10 @@
 + * header (offset = pc - mh). Called from proc_prepareexit on the exiting
 + * (crashing) thread.
 + */
-+void sweet_crash_log(const char *name, int pid, int sig, uint64_t code, uint64_t subcode);
++void fuxi_crash_log(const char *name, int pid, int sig, uint64_t code, uint64_t subcode);
 +
 +void
-+sweet_crash_log(const char *name, int pid, int sig, uint64_t code, uint64_t subcode)
++fuxi_crash_log(const char *name, int pid, int sig, uint64_t code, uint64_t subcode)
 +{
 +	thread_t thread = current_thread();
 +	task_t task = current_task();
@@ -69,8 +69,8 @@
  
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +		if (p == current_proc()) {
-+			extern void sweet_crash_log(const char *, int, int, uint64_t, uint64_t);
-+			sweet_crash_log(p->p_comm, proc_getpid(p), WTERMSIG(rv),
++			extern void fuxi_crash_log(const char *, int, int, uint64_t, uint64_t);
++			fuxi_crash_log(p->p_comm, proc_getpid(p), WTERMSIG(rv),
 +			    ((uint64_t)ut->uu_exception << 32) | (uint32_t)ut->uu_code, ut->uu_subcode);
 +		}
 +#endif
@@ -88,7 +88,7 @@
  
  /* The system (device) bag handle. */
 @@ -209,6 +210,15 @@
- 		args->scalarOutput[0] = SWEET_AKS_LOCK_STATE;
+ 		args->scalarOutput[0] = FUXI_AKS_LOCK_STATE;
  		args->scalarOutputCount = 1;
  		break;
 +	case kAKSNotifyStateIsSet:
@@ -102,4 +102,4 @@
 +		break;
  	case kAKSGetDeviceState:
  		args->scalarOutputCount = 0;
- 		ret = sweet_aks_device_state(args);
+ 		ret = fuxi_aks_device_state(args);

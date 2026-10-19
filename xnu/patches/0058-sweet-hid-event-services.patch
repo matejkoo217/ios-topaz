@@ -15,14 +15,14 @@
      "     'IONameMatch'     = 'sweet,display';"
      "   },"
 +    "   {"
-+    "     'IOClass'         = SweetHIDButtons;"
++    "     'IOClass'         = FuxiHIDButtons;"
 +    "     'IOProviderClass' = IOResources;"
-+    "     'IOMatchCategory' = SweetHIDButtons;"
++    "     'IOMatchCategory' = FuxiHIDButtons;"
 +    "   },"
 +    "   {"
-+    "     'IOClass'         = SweetHIDTouch;"
++    "     'IOClass'         = FuxiHIDTouch;"
 +    "     'IOProviderClass' = IOResources;"
-+    "     'IOMatchCategory' = SweetHIDTouch;"
++    "     'IOMatchCategory' = FuxiHIDTouch;"
 +    "   },"
  #endif
      "   {"
@@ -20605,11 +20605,11 @@
 + * shared queue. This file has the minimal IOHIDEventService base class and
 + * two services:
 + *
-+ *   SweetHIDButtons  consumer-control keys (power, volume, home)
-+ *   SweetHIDTouch    the built-in touch screen (digitizer collections)
++ *   FuxiHIDButtons  consumer-control keys (power, volume, home)
++ *   FuxiHIDTouch    the built-in touch screen (digitizer collections)
 + *
-+ * Hardware drivers feed them through the C entry points sweet_hid_key()
-+ * and sweet_hid_touch(). Boot-arg sweethidtest=N (seconds) presses Home
++ * Hardware drivers feed them through the C entry points fuxi_hid_key()
++ * and fuxi_hid_touch(). Boot-arg sweethidtest=N (seconds) presses Home
 + * every N seconds, to test the event path without input hardware.
 + */
 +#include <IOKit/IOLib.h>
@@ -20921,8 +20921,8 @@
 + * Buttons. iOS takes the side/volume/home buttons as consumer-control
 + * keyboard events (AppleM68Buttons publishes the same usage pair).
 + */
-+class SweetHIDButtons : public IOHIDEventService {
-+	OSDeclareDefaultStructors(SweetHIDButtons);
++class FuxiHIDButtons : public IOHIDEventService {
++	OSDeclareDefaultStructors(FuxiHIDButtons);
 +public:
 +	virtual bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
 +	void key(UInt32 usage, bool down);
@@ -20936,16 +20936,16 @@
 +	UInt32 fTestSecs;
 +	UInt32 fTestCount;
 +};
-+OSDefineMetaClassAndStructors(SweetHIDButtons, IOHIDEventService);
++OSDefineMetaClassAndStructors(FuxiHIDButtons, IOHIDEventService);
 +
 +/*
 + * Touch screen: digitizer collection events with finger children,
 + * coordinates normalized to 0..1 like IOHIDEventDriver produces for
 + * absolute digitizers.
 + */
-+#define SWEET_TOUCH_FINGERS 10
-+class SweetHIDTouch : public IOHIDEventService {
-+	OSDeclareDefaultStructors(SweetHIDTouch);
++#define FUXI_TOUCH_FINGERS 10
++class FuxiHIDTouch : public IOHIDEventService {
++	OSDeclareDefaultStructors(FuxiHIDTouch);
 +public:
 +	virtual bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
 +	void touch(int finger, bool down, int x, int y);
@@ -20955,35 +20955,35 @@
 +	virtual UInt32 getProductID() APPLE_KEXT_OVERRIDE { return 2; }
 +private:
 +	IOLock *fLock;
-+	bool fDown[SWEET_TOUCH_FINGERS];
-+	IOFixed fX[SWEET_TOUCH_FINGERS];
-+	IOFixed fY[SWEET_TOUCH_FINGERS];
++	bool fDown[FUXI_TOUCH_FINGERS];
++	IOFixed fX[FUXI_TOUCH_FINGERS];
++	IOFixed fY[FUXI_TOUCH_FINGERS];
 +};
-+OSDefineMetaClassAndStructors(SweetHIDTouch, IOHIDEventService);
++OSDefineMetaClassAndStructors(FuxiHIDTouch, IOHIDEventService);
 +
-+static SweetHIDButtons *gSweetButtons;
-+static SweetHIDTouch *gSweetTouch;
++static FuxiHIDButtons *gFuxiButtons;
++static FuxiHIDTouch *gFuxiTouch;
 +
 +bool
-+SweetHIDButtons::start(IOService *provider)
++FuxiHIDButtons::start(IOService *provider)
 +{
 +	if (!IOHIDEventService::start(provider)) {
 +		return false;
 +	}
 +	if (PE_parse_boot_argn("sweethidtest", &fTestSecs, sizeof(fTestSecs)) && fTestSecs) {
-+		fTest = IOTimerEventSource::timerEventSource(this, &SweetHIDButtons::testFired);
++		fTest = IOTimerEventSource::timerEventSource(this, &FuxiHIDButtons::testFired);
 +		if (fTest && _hidWorkLoop->addEventSource(fTest) == kIOReturnSuccess) {
 +			fTest->setTimeoutMS(fTestSecs * 1000);
 +		}
 +	}
-+	gSweetButtons = this;
++	gFuxiButtons = this;
 +	registerService();
 +	IOLog("FUXI HID: buttons registered (test every %u s)\n", fTestSecs);
 +	return true;
 +}
 +
 +void
-+SweetHIDButtons::key(UInt32 usage, bool down)
++FuxiHIDButtons::key(UInt32 usage, bool down)
 +{
 +	IOHIDEvent *event = IOHIDEvent::keyboardEvent(mach_absolute_time(), kHIDPage_Consumer, usage, down);
 +
@@ -20996,9 +20996,9 @@
 +}
 +
 +void
-+SweetHIDButtons::testFired(OSObject *owner, IOTimerEventSource *sender)
++FuxiHIDButtons::testFired(OSObject *owner, IOTimerEventSource *sender)
 +{
-+	SweetHIDButtons *self = (SweetHIDButtons *)owner;
++	FuxiHIDButtons *self = (FuxiHIDButtons *)owner;
 +
 +	/*
 +	 * Home (Menu) press, then the release 100 ms later; Setup's "Hello"
@@ -21012,7 +21012,7 @@
 +}
 +
 +bool
-+SweetHIDTouch::start(IOService *provider)
++FuxiHIDTouch::start(IOService *provider)
 +{
 +	fLock = IOLockAlloc();
 +	if (!fLock || !IOHIDEventService::start(provider)) {
@@ -21022,20 +21022,20 @@
 +	setProperty("DisplayIntegrated", kOSBooleanTrue);
 +	setProperty("SurfaceWidth", (unsigned long long)(68 << 16), 32);	/* mm, 16.16 */
 +	setProperty("SurfaceHeight", (unsigned long long)(151 << 16), 32);
-+	gSweetTouch = this;
++	gFuxiTouch = this;
 +	registerService();
 +	IOLog("FUXI HID: touch registered\n");
 +	return true;
 +}
 +
 +void
-+SweetHIDTouch::touch(int finger, bool down, int x, int y)
++FuxiHIDTouch::touch(int finger, bool down, int x, int y)
 +{
 +	uint64_t now = mach_absolute_time();
 +	IOHIDEvent *collection;
 +	bool any = false;
 +
-+	if (finger < 0 || finger >= SWEET_TOUCH_FINGERS) {
++	if (finger < 0 || finger >= FUXI_TOUCH_FINGERS) {
 +		return;
 +	}
 +	x = x < 0 ? 0 : (x > 1079 ? 1079 : x);
@@ -21059,7 +21059,7 @@
 +	collection->setIntegerValue(kIOHIDEventFieldDigitizerCollection, TRUE);
 +
 +	UInt32 cmask = 0;
-+	for (int i = 0; i < SWEET_TOUCH_FINGERS; i++) {
++	for (int i = 0; i < FUXI_TOUCH_FINGERS; i++) {
 +		bool d = (i == finger) ? down : fDown[i];
 +		if (i != finger && !d) {
 +			continue;
@@ -21114,23 +21114,23 @@
 +
 +/* key: 0 power (side button), 1 volume up, 2 volume down, 3 home */
 +extern "C" void
-+sweet_hid_key(int key, int down)
++fuxi_hid_key(int key, int down)
 +{
 +	static const UInt32 usages[] = {
 +		kHIDUsage_Csmr_Power, kHIDUsage_Csmr_VolumeIncrement,
 +		kHIDUsage_Csmr_VolumeDecrement, kHIDUsage_Csmr_Menu,
 +	};
 +
-+	if (gSweetButtons && key >= 0 && key < (int)(sizeof(usages) / sizeof(usages[0]))) {
-+		gSweetButtons->key(usages[key], down != 0);
++	if (gFuxiButtons && key >= 0 && key < (int)(sizeof(usages) / sizeof(usages[0]))) {
++		gFuxiButtons->key(usages[key], down != 0);
 +	}
 +}
 +
 +extern "C" void
-+sweet_hid_touch(int finger, int down, int x, int y)
++fuxi_hid_touch(int finger, int down, int x, int y)
 +{
-+	if (gSweetTouch) {
-+		gSweetTouch->touch(finger, down != 0, x, y);
++	if (gFuxiTouch) {
++		gFuxiTouch->touch(finger, down != 0, x, y);
 +	}
 +}
 --- /dev/null

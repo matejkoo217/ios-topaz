@@ -77,7 +77,7 @@ index c40c6ea..9888608 100644
 +	if (intid >= 1020 && intid <= 1023) {
 +		return; /* spurious */
 +	}
-+	if (intid == SWEET_VTIMER_INTID) {
++	if (intid == FUXI_VTIMER_INTID) {
 +		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_TIMER);
 +		cdp->cpu_decrementer = -1; /* Large */
 +		INTERRUPT_MASKED_DEBUG_START(rtclock_intr, DBG_INTR_TYPE_TIMER);
@@ -150,7 +150,7 @@ index 3ad743f..4ec6989 100644
 +	for (unsigned int i = 0; i < 32; i += 4) {
 +		gicr_write32(GICR_IPRIORITYR0 + i, 0xA0A0A0A0);
 +	}
-+	gicr_write32(GICR_ISENABLER0, (1U << SWEET_VTIMER_INTID) | (1U << SWEET_IPI_SGI));
++	gicr_write32(GICR_ISENABLER0, (1U << FUXI_VTIMER_INTID) | (1U << FUXI_IPI_SGI));
 +#else
  	// Configure timers and legacy FIQ to be group 0
  	gicr_write32(GICR_IGROUPR0, 0x81FFFFFF);
@@ -260,8 +260,8 @@ index 0000000..a044ad0
 + * virt, hyp) instead of the usual 13/14/11/10: the virtual timer XNU uses
 + * (CNTV) is INTID 16 + 3 = 19.
 + */
-+#define SWEET_VTIMER_INTID        19
-+#define SWEET_IPI_SGI             1       // SGI used for cross-CPU signals
++#define FUXI_VTIMER_INTID        19
++#define FUXI_IPI_SGI             1       // SGI used for cross-CPU signals
 +
 +#define GIC_SPURIOUS_IRQ          1023    // IRQ no. for GIC spurious interrupt
 +

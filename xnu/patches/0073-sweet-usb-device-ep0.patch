@@ -14,8 +14,8 @@
  #include <pexpert/pexpert.h>
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
- void sweet_usb_probe(void);
-+static void sweet_usb_gadget_start(vm_offset_t dwc);
+ void fuxi_usb_probe(void);
++static void fuxi_usb_gadget_start(vm_offset_t dwc);
 +extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
  
  #define GCC_PA                  0x00100000
@@ -33,7 +33,7 @@
  	    usb_rd(dwc, 0xc404), usb_rd(dwc, 0xc400), usb_rd(dwc, 0xc408), usb_rd(dwc, 0xc40c),
  	    usb_rd(dwc, 0xc140));
 +	if (enabled >= 2) {
-+		sweet_usb_gadget_start(dwc);
++		fuxi_usb_gadget_start(dwc);
 +	}
  	if (cbcr[5] & CBCR_CLK_OFF) {
  		printf("FUXI USB: ahb2phy clock off; QUSB2 PHY not read\n");
@@ -363,7 +363,7 @@
 +}
 +
 +static void
-+sweet_usb_gadget_start(vm_offset_t dwc)
++fuxi_usb_gadget_start(vm_offset_t dwc)
 +{
 +	thread_t thread;
 +

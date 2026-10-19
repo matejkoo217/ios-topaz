@@ -23,4 +23,4 @@
 +		    boot_mpidr, topology->boot_cpu->phys_id, topology->boot_cpu->cpu_id);
  	}
  	for (unsigned int i = 0; i < topology->num_cpus; i++) {
- 		SweetCPU *cpu = __atomic_load_n(&sweet_cpus[i], __ATOMIC_ACQUIRE);
+ 		FuxiCPU *cpu = __atomic_load_n(&fuxi_cpus[i], __ATOMIC_ACQUIRE);

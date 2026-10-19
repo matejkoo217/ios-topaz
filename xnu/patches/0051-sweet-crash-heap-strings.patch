@@ -3,18 +3,18 @@
 @@ -833,6 +833,7 @@
   * (crashing) thread.
   */
- void sweet_crash_log(const char *name, int pid, int sig, uint64_t code, uint64_t subcode);
-+static void sweet_crash_strings(const char *name);
+ void fuxi_crash_log(const char *name, int pid, int sig, uint64_t code, uint64_t subcode);
++static void fuxi_crash_strings(const char *name);
  
  void
- sweet_crash_log(const char *name, int pid, int sig, uint64_t code, uint64_t subcode)
+ fuxi_crash_log(const char *name, int pid, int sig, uint64_t code, uint64_t subcode)
 @@ -871,6 +872,103 @@
  		fp = frame[0];
  	}
  	printf("%s\n", line);
 +
 +	if (sig == 6) {
-+		sweet_crash_strings(name);
++		fuxi_crash_strings(name);
 +	}
 +}
 +
@@ -26,7 +26,7 @@
 + * is among them: the abort message only carries the exception's type.
 + */
 +static void
-+sweet_crash_strings(const char *name)
++fuxi_crash_strings(const char *name)
 +{
 +	static char names[128];
 +	char *buf;

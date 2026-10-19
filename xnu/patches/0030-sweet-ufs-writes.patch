@@ -160,9 +160,9 @@
 +		if (!su.writable) {
 +			return 0;
 +		}
-+		lck_mtx_lock(&sweet_ufs_lock);
++		lck_mtx_lock(&fuxi_ufs_lock);
 +		int error = ufs_sync_cache();
-+		lck_mtx_unlock(&sweet_ufs_lock);
++		lck_mtx_unlock(&fuxi_ufs_lock);
 +		return error;
 +	}
  	case DKIOCGETMAXBLOCKCOUNTREAD:
@@ -178,17 +178,17 @@
  }
  
  static int
--sweet_ufs_write(__unused dev_t dev, __unused struct uio *uio, __unused int ioflag)
-+sweet_ufs_write(dev_t dev, struct uio *uio, __unused int ioflag)
+-fuxi_ufs_write(__unused dev_t dev, __unused struct uio *uio, __unused int ioflag)
++fuxi_ufs_write(dev_t dev, struct uio *uio, __unused int ioflag)
  {
 -	return EROFS;
 +	if (!su.writable) {
 +		return EROFS;
 +	}
-+	return physio(sweet_ufs_strategy, NULL, dev, B_WRITE, minphys, uio, (int)su.secsize);
++	return physio(fuxi_ufs_strategy, NULL, dev, B_WRITE, minphys, uio, (int)su.secsize);
  }
  
- static const struct bdevsw sweet_ufs_bdevsw = {
+ static const struct bdevsw fuxi_ufs_bdevsw = {
 @@ -470,6 +533,8 @@
  		return ENXIO;
  	}

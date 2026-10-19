@@ -26,9 +26,9 @@
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  /* Mach MIG declaration is not included by BSD's exported thread.h. */
  extern kern_return_t thread_terminate(thread_t);
-+extern int sweet_rpmh_vreg_enable(const char *res, unsigned mv);
- extern void sweet_hid_touch(int finger, int down, int x, int y);
- void sweet_touch_init(void);
++extern int fuxi_rpmh_vreg_enable(const char *res, unsigned mv);
+ extern void fuxi_hid_touch(int finger, int down, int x, int y);
+ void fuxi_touch_init(void);
  
 @@ -105,14 +106,14 @@
  }
@@ -66,7 +66,7 @@
 +	/* Keep the IC in reset while its rails settle; IRQ stays an input. */
 +	touch_gpio(9, 0, 3, 3, false, false); /* IRQ input, 8 mA, pull-up */
 +	touch_gpio(8, 0, 3, 3, true, false);
-+	int power_error = sweet_rpmh_vreg_enable("ldoc11", 3200);
++	int power_error = fuxi_rpmh_vreg_enable("ldoc11", 3200);
 +	if (power_error) {
 +		printf("FUXI TOUCH: L11C RPMh enable failed %d; probes skipped\n", power_error);
 +		goto out;
@@ -97,12 +97,12 @@
 +++ b/iokit/KernelConfigTables.cpp
 @@ -77,6 +77,11 @@
      "     'IOProviderClass' = IOResources;"
-     "     'IOMatchCategory' = SweetHIDTouch;"
+     "     'IOMatchCategory' = FuxiHIDTouch;"
      "   },"
 +    "   {"
-+    "     'IOClass'         = SweetBattery;"
++    "     'IOClass'         = FuxiBattery;"
 +    "     'IOProviderClass' = IOResources;"
-+    "     'IOMatchCategory' = SweetBattery;"
++    "     'IOMatchCategory' = FuxiBattery;"
 +    "   },"
  #endif
      "   {"
@@ -123,7 +123,7 @@
 +#include <machine/machine_routines.h>
 +
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-+int sweet_rpmh_vreg_enable(const char *res, unsigned mv);
++int fuxi_rpmh_vreg_enable(const char *res, unsigned mv);
 +
 +/* Live downstream DT has two positional reg entries, no reg-names. */
 +#define RH_RSC_PA       0x18220000u
@@ -437,7 +437,7 @@
 +}
 +
 +int
-+sweet_rpmh_vreg_enable(const char *res, unsigned mv)
++fuxi_rpmh_vreg_enable(const char *res, unsigned mv)
 +{
 +	/* Board-specific helper: do not apply PMIC5-LDO policy to arbitrary resources. */
 +	if (!res || strcmp(res, "ldoc11") || mv < 2950 || mv > 3400) {
@@ -475,7 +475,7 @@
 + * Battery-only adaptation of input/fuxi_keys.c, observer EXT_READL.
 + * PMIC READ ONLY. The only MMIO store issues a one-byte read command.
 + * No interrupt clear, peripheral enable, charger config, or PMIC writes.
-+ * Init is serialized by the single built-in SweetBattery personality.
++ * Init is serialized by the single built-in FuxiBattery personality.
 + * Battery APIDs are disjoint from the existing keys' 008/4c1 APIDs.
 + */
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
@@ -525,7 +525,7 @@
 +}
 +
 +int
-+sweet_spmi_init(void)
++fuxi_spmi_init(void)
 +{
 +	if (sp_attempted) {
 +		return sp_ready ? 0 : -1;
@@ -557,7 +557,7 @@
 +}
 +
 +int
-+sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
++fuxi_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
 +{
 +	/* Restrict access to the battery blocks; keys retain their own lanes. */
 +	unsigned peripheral = addr >> 8;
@@ -600,16 +600,16 @@
 --- /dev/null
 +++ b/bsd/dev/fuxi_spmi.h
 @@ -0,0 +1,14 @@
-+/* Shared C/C++ interface. Init once, on the SweetBattery start thread. */
-+#ifndef SWEET_BATTERY_SPMI_H
-+#define SWEET_BATTERY_SPMI_H
++/* Shared C/C++ interface. Init once, on the FuxiBattery start thread. */
++#ifndef FUXI_BATTERY_SPMI_H
++#define FUXI_BATTERY_SPMI_H
 +#include <stdint.h>
 +#ifdef __cplusplus
 +extern "C" {
 +#endif
-+int sweet_spmi_init(void);
++int fuxi_spmi_init(void);
 +/* Thread context only; 0 success, -1 failure; *out unchanged on failure. */
-+int sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
++int fuxi_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
 +#ifdef __cplusplus
 +}
 +#endif
@@ -632,11 +632,11 @@
 +#include <libkern/c++/OSCollectionIterator.h>
 +#include <pexpert/pexpert.h>
 +/* bsd/dev/fuxi_spmi.c */
-+extern "C" int sweet_spmi_init(void);
-+extern "C" int sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
++extern "C" int fuxi_spmi_init(void);
++extern "C" int fuxi_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
 +
-+class SweetBattery : public IOPMPowerSource {
-+	OSDeclareDefaultStructors(SweetBattery);
++class FuxiBattery : public IOPMPowerSource {
++	OSDeclareDefaultStructors(FuxiBattery);
 +public:
 +	bool init(OSDictionary *dictionary = NULL) APPLE_KEXT_OVERRIDE;
 +	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
@@ -657,10 +657,10 @@
 +	static bool readWord(unsigned address, uint16_t *value);
 +	static unsigned estimatePercent(unsigned mv);
 +};
-+OSDefineMetaClassAndStructors(SweetBattery, IOPMPowerSource);
++OSDefineMetaClassAndStructors(FuxiBattery, IOPMPowerSource);
 +
 +bool
-+SweetBattery::init(OSDictionary *dictionary)
++FuxiBattery::init(OSDictionary *dictionary)
 +{
 +	/* IOCatalogue calls init(dictionary). This XNU's IOPMPowerSource only
 +	 * overrides init(void): explicitly run it to allocate its PS dictionary
@@ -695,7 +695,7 @@
 +}
 +
 +void
-+SweetBattery::putNumber(const char *key, UInt32 value)
++FuxiBattery::putNumber(const char *key, UInt32 value)
 +{
 +	const OSSymbol *symbol = OSSymbol::withCString(key);
 +	OSNumber *number = OSNumber::withNumber(value, 32);
@@ -707,7 +707,7 @@
 +}
 +
 +void
-+SweetBattery::putBool(const char *key, bool value)
++FuxiBattery::putBool(const char *key, bool value)
 +{
 +	const OSSymbol *symbol = OSSymbol::withCString(key);
 +	if (symbol) {
@@ -717,7 +717,7 @@
 +}
 +
 +void
-+SweetBattery::publish(unsigned percent, unsigned mv, int ma, bool external,
++FuxiBattery::publish(unsigned percent, unsigned mv, int ma, bool external,
 +    bool capable, bool charging, bool full, bool measured, bool currentValid)
 +{
 +	/* Use consistent mAh units (DT nominal=5020). powerd computes C*100/M. */
@@ -743,12 +743,12 @@
 +	putNumber("InstantAmperage", (UInt32)ma);
 +	/* iOS battery convention: centidegrees C; fixed 25 C, NOT measured. */
 +	putNumber("Temperature", 2500);
-+	putBool("SweetBatteryHardwareSampleValid", measured);
-+	putBool("SweetBatteryCurrentValid", currentValid);
-+	putBool("SweetBatterySOCEstimated", measured);
-+	putBool("SweetBatteryTemperatureEstimated", true);
-+	putBool("SweetBatteryFallback", !measured);
-+	putNumber("SweetBatteryPercent", percent);
++	putBool("FuxiBatteryHardwareSampleValid", measured);
++	putBool("FuxiBatteryCurrentValid", currentValid);
++	putBool("FuxiBatterySOCEstimated", measured);
++	putBool("FuxiBatteryTemperatureEstimated", true);
++	putBool("FuxiBatteryFallback", !measured);
++	putNumber("FuxiBatteryPercent", percent);
 +
 +	/* IOPMCopyBatteryInfo's per-source compatibility dictionary. */
 +	OSDictionary *legacy = OSDictionary::withCapacity(7);
@@ -783,13 +783,13 @@
 + * words to reject most torn ADC samples without writing the QG HOLD bit.
 + * This is a bounded consistency check, not a hardware snapshot guarantee. */
 +bool
-+SweetBattery::readWord(unsigned address, uint16_t *value)
++FuxiBattery::readWord(unsigned address, uint16_t *value)
 +{
 +	uint16_t previous = 0;
 +	for (unsigned attempt = 0; attempt < 4; ++attempt) {
 +		uint8_t lo, hi;
-+		if (sweet_spmi_read(0, address, &lo) ||
-+		    sweet_spmi_read(0, address + 1, &hi)) {
++		if (fuxi_spmi_read(0, address, &lo) ||
++		    fuxi_spmi_read(0, address + 1, &hi)) {
 +			return false;
 +		}
 +		uint16_t next = (uint16_t)((unsigned)lo | ((unsigned)hi << 8));
@@ -803,7 +803,7 @@
 +}
 +
 +unsigned
-+SweetBattery::estimatePercent(unsigned mv)
++FuxiBattery::estimatePercent(unsigned mv)
 +{
 +	/* Generic single-cell curve, intentionally NOT advertised as QG SOC.
 +	 * Load sag, temperature, aging and charging introduce large errors. */
@@ -823,19 +823,19 @@
 +}
 +
 +void
-+SweetBattery::poll(void)
++FuxiBattery::poll(void)
 +{
 +	uint8_t type, present, usb, path, charger, error, temperature;
 +	uint16_t rawVoltage;
 +	bool valid = fReal &&
-+	    !sweet_spmi_read(0, 0x4804, &type) && type == 0x0d &&
-+	    !sweet_spmi_read(0, 0x4808, &present) && (present & 1u) &&
++	    !fuxi_spmi_read(0, 0x4804, &type) && type == 0x0d &&
++	    !fuxi_spmi_read(0, 0x4808, &present) && (present & 1u) &&
 +	    readWord(0x48c0, &rawVoltage) && rawVoltage != 0x8000 &&
-+	    !sweet_spmi_read(0, 0x1310, &usb) &&
-+	    !sweet_spmi_read(0, 0x110b, &path) &&
-+	    !sweet_spmi_read(0, 0x1006, &charger) &&
-+	    !sweet_spmi_read(0, 0x1007, &error) &&
-+	    !sweet_spmi_read(0, 0x100d, &temperature);
++	    !fuxi_spmi_read(0, 0x1310, &usb) &&
++	    !fuxi_spmi_read(0, 0x110b, &path) &&
++	    !fuxi_spmi_read(0, 0x1006, &charger) &&
++	    !fuxi_spmi_read(0, 0x1007, &error) &&
++	    !fuxi_spmi_read(0, 0x100d, &temperature);
 +	unsigned mv = valid ? (unsigned)(((uint64_t)rawVoltage * 194637u) / 1000000u) : 0;
 +	/* Zero, reset, floating, or implausible data cannot become 0% battery. */
 +	valid = valid && mv >= 2800 && mv <= 4600;
@@ -853,7 +853,7 @@
 +	int ma = 0;
 +	uint8_t subtype;
 +	uint16_t rawCurrent;
-+	bool currentValid = !sweet_spmi_read(0, 0x4805, &subtype) &&
++	bool currentValid = !fuxi_spmi_read(0, 0x4805, &subtype) &&
 +	    (subtype == 3 || subtype == 4) && readWord(0x48c2, &rawCurrent) &&
 +	    rawCurrent != 0x8000;
 +	if (currentValid) {
@@ -866,9 +866,9 @@
 +}
 +
 +void
-+SweetBattery::timerFired(OSObject *owner, IOTimerEventSource *sender)
++FuxiBattery::timerFired(OSObject *owner, IOTimerEventSource *sender)
 +{
-+	SweetBattery *self = OSDynamicCast(SweetBattery, owner);
++	FuxiBattery *self = OSDynamicCast(FuxiBattery, owner);
 +	if (self && self->fRunning) {
 +		self->poll();
 +		sender->setTimeoutMS(30000);
@@ -876,19 +876,19 @@
 +}
 +
 +bool
-+SweetBattery::start(IOService *provider)
++FuxiBattery::start(IOService *provider)
 +{
 +	if (!IOPMPowerSource::start(provider)) {
 +		return false;
 +	}
 +	int real = 0;
 +	(void)PE_parse_boot_argn("sweetbattery", &real, sizeof(real));
-+	fReal = real == 1 && sweet_spmi_init() == 0;
++	fReal = real == 1 && fuxi_spmi_init() == 0;
 +	/* Publish a complete source BEFORE registerService wakes powerd. */
 +	poll();
 +	if (fReal) {
 +		fLoop = IOWorkLoop::workLoop();
-+		fTimer = IOTimerEventSource::timerEventSource(this, &SweetBattery::timerFired);
++		fTimer = IOTimerEventSource::timerEventSource(this, &FuxiBattery::timerFired);
 +		if (fLoop && fTimer && fLoop->addEventSource(fTimer) == kIOReturnSuccess) {
 +			fTimerAdded = true;
 +			fRunning = true;
@@ -904,11 +904,11 @@
 +}
 +
 +void
-+SweetBattery::stop(IOService *provider)
++FuxiBattery::stop(IOService *provider)
 +{
 +	if (fLoop && fTimerAdded) {
 +		/* Serialize against a running timer callback, including rearming. */
-+		(void)fLoop->runAction(&SweetBattery::stopPolling, this);
++		(void)fLoop->runAction(&FuxiBattery::stopPolling, this);
 +		fLoop->removeEventSource(fTimer);
 +		fTimerAdded = false;
 +	}
@@ -916,9 +916,9 @@
 +}
 +
 +IOReturn
-+SweetBattery::stopPolling(OSObject *owner, void *, void *, void *, void *)
++FuxiBattery::stopPolling(OSObject *owner, void *, void *, void *, void *)
 +{
-+	SweetBattery *self = OSDynamicCast(SweetBattery, owner);
++	FuxiBattery *self = OSDynamicCast(FuxiBattery, owner);
 +	if (!self) {
 +		return kIOReturnBadArgument;
 +	}
@@ -929,7 +929,7 @@
 +}
 +
 +void
-+SweetBattery::free(void)
++FuxiBattery::free(void)
 +{
 +	OSSafeReleaseNULL(fTimer);
 +	OSSafeReleaseNULL(fLoop);

@@ -6,8 +6,8 @@
  
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +	/* AMFI's MAC policy is built in on SWEET (bsd/kern/fuxi_amfi.c). */
-+	extern void sweet_amfi_policy_register(void);
-+	sweet_amfi_policy_register();
++	extern void fuxi_amfi_policy_register(void);
++	fuxi_amfi_policy_register();
 +#endif
 +
  #if SWEET_HFS
@@ -27,7 +27,7 @@
 - * Image4), so the TrustCache interface is left at version 0.
 + * Entitlements: when a code signature is added, its XML entitlements blob
 + * (already checked against the code directory) is parsed into a
-+ * SweetEntitlements object (iokit/Kernel/arm/FuxiEntitlements.cpp), set as
++ * FuxiEntitlements object (iokit/Kernel/arm/FuxiEntitlements.cpp), set as
 + * the blob's csb_entitlements, and every query is answered from it. DER-only
 + * signatures get none. Code signature and page hash validation stay with the
 + * kernel. Trust caches remain unavailable (no Image4), so the TrustCache
@@ -54,13 +54,13 @@
 +#include <security/mac_policy.h>
 +
 +/* iokit/Kernel/arm/FuxiEntitlements.cpp */
-+void *sweet_entitlements_create(const CS_GenericBlob *blob, size_t blob_len);
-+void *sweet_entitlements_copy_dict(const void *ent);
-+bool sweet_entitlements_copy_xml(const void *ent, CS_GenericBlob **out);
-+bool sweet_entitlements_bool(const void *ent, const char *name);
-+bool sweet_entitlements_string(const void *ent, const char *name, const char *value);
-+void *sweet_entitlements_copy_object(const void *ent, const char *name);
-+unsigned int sweet_entitlements_count(const void *ent);
++void *fuxi_entitlements_create(const CS_GenericBlob *blob, size_t blob_len);
++void *fuxi_entitlements_copy_dict(const void *ent);
++bool fuxi_entitlements_copy_xml(const void *ent, CS_GenericBlob **out);
++bool fuxi_entitlements_bool(const void *ent, const char *name);
++bool fuxi_entitlements_string(const void *ent, const char *name, const char *value);
++void *fuxi_entitlements_copy_object(const void *ent, const char *name);
++unsigned int fuxi_entitlements_count(const void *ent);
 +extern void osobject_release(void *object);
 +
 +/* boot-arg sweet_amfi_debug=1: log the entitlements attached to each signature. */
@@ -68,25 +68,25 @@
 +
 +/* The entitlements object of a process's main binary, or NULL. */
 +static void *
-+sweet_proc_entitlements(proc_t proc)
++fuxi_proc_entitlements(proc_t proc)
 +{
 +	struct cs_blob *blob = csproc_get_blob(proc);
 +	return blob != NULL ? csblob_os_entitlements_get(blob) : NULL;
 +}
  
  static void
- sweet_amfi_entitlements_invalidate(__unused void *os_entitlements)
+ fuxi_amfi_entitlements_invalidate(__unused void *os_entitlements)
  {
 -	/* No OSEntitlements objects are ever created. */
 +	/* Queries already require a valid signature (csblob_get_entitlements). */
  }
  
  static void *
--sweet_amfi_entitlements_as_dict(__unused void *os_entitlements)
-+sweet_amfi_entitlements_as_dict(void *os_entitlements)
+-fuxi_amfi_entitlements_as_dict(__unused void *os_entitlements)
++fuxi_amfi_entitlements_as_dict(void *os_entitlements)
  {
 -	return NULL;
-+	return sweet_entitlements_copy_dict(os_entitlements);
++	return fuxi_entitlements_copy_dict(os_entitlements);
  }
  
  static CEError_t
@@ -94,12 +94,12 @@
  }
  
  static bool
--sweet_amfi_entitlements_get_xml(__unused void *os_entitlements,
+-fuxi_amfi_entitlements_get_xml(__unused void *os_entitlements,
 -    __unused CS_GenericBlob **blob)
-+sweet_amfi_entitlements_get_xml(void *os_entitlements, CS_GenericBlob **blob)
++fuxi_amfi_entitlements_get_xml(void *os_entitlements, CS_GenericBlob **blob)
  {
 -	return false;
-+	return sweet_entitlements_copy_xml(os_entitlements, blob);
++	return fuxi_entitlements_copy_xml(os_entitlements, blob);
  }
  
  static bool
@@ -115,7 +115,7 @@
 + * its code directory hash.
 + */
 +static void
-+sweet_amfi_attach_entitlements(struct cs_blob *code_signing_blob)
++fuxi_amfi_attach_entitlements(struct cs_blob *code_signing_blob)
 +{
 +	void *xml = NULL;
 +	size_t xml_len = 0;
@@ -128,7 +128,7 @@
 +	if (xml == NULL) {
 +		return;                 /* no XML entitlements */
 +	}
-+	void *ent = sweet_entitlements_create(xml, xml_len);
++	void *ent = fuxi_entitlements_create(xml, xml_len);
 +	if (ent == NULL) {
 +		printf("FUXI AMFI: %s: unreadable entitlements (%zu bytes), granting none\n",
 +		    csblob_get_identity(code_signing_blob), xml_len);
@@ -137,71 +137,71 @@
 +	if (sweet_amfi_debug) {
 +		/* The test keys only exist in tools/mkinit.py test signatures. */
 +		printf("FUXI AMFI: %s: %u entitlements (test: bool %d string %d array %d)\n",
-+		    csblob_get_identity(code_signing_blob), sweet_entitlements_count(ent),
-+		    sweet_entitlements_bool(ent, "com.apple.private.sweet.test-bool"),
-+		    sweet_entitlements_string(ent, "com.apple.private.sweet.test-string", "hello"),
-+		    sweet_entitlements_string(ent, "com.apple.private.sweet.test-array", "two"));
++		    csblob_get_identity(code_signing_blob), fuxi_entitlements_count(ent),
++		    fuxi_entitlements_bool(ent, "com.apple.private.sweet.test-bool"),
++		    fuxi_entitlements_string(ent, "com.apple.private.sweet.test-string", "hello"),
++		    fuxi_entitlements_string(ent, "com.apple.private.sweet.test-array", "two"));
 +	}
 +	csblob_os_entitlements_set(code_signing_blob, ent);    /* takes a reference */
 +	osobject_release(ent);
 +}
 +
  static kern_return_t
- sweet_amfi_adjust_without_monitor(__unused void *os_entitlements,
+ fuxi_amfi_adjust_without_monitor(__unused void *os_entitlements,
      __unused struct cs_blob *code_signing_blob)
  {
 -	/* Leave the blob without an entitlements context: it has none. */
-+	/* Entitlements were attached in sweet_amfi_vnode_check_signature. */
++	/* Entitlements were attached in fuxi_amfi_vnode_check_signature. */
  	return KERN_SUCCESS;
  }
  
  static kern_return_t
--sweet_amfi_query_boolean(__unused const void *os_entitlements,
+-fuxi_amfi_query_boolean(__unused const void *os_entitlements,
 -    __unused const char *entitlement_name)
-+sweet_amfi_query_boolean(const void *os_entitlements, const char *entitlement_name)
++fuxi_amfi_query_boolean(const void *os_entitlements, const char *entitlement_name)
  {
 -	return KERN_DENIED;
-+	return sweet_entitlements_bool(os_entitlements, entitlement_name) ? KERN_SUCCESS : KERN_DENIED;
++	return fuxi_entitlements_bool(os_entitlements, entitlement_name) ? KERN_SUCCESS : KERN_DENIED;
  }
  
  static kern_return_t
--sweet_amfi_query_boolean_with_proc(__unused const proc_t proc,
+-fuxi_amfi_query_boolean_with_proc(__unused const proc_t proc,
 -    __unused const char *entitlement_name)
-+sweet_amfi_query_boolean_with_proc(const proc_t proc, const char *entitlement_name)
++fuxi_amfi_query_boolean_with_proc(const proc_t proc, const char *entitlement_name)
  {
 -	return KERN_DENIED;
-+	return sweet_amfi_query_boolean(sweet_proc_entitlements(proc), entitlement_name);
++	return fuxi_amfi_query_boolean(fuxi_proc_entitlements(proc), entitlement_name);
  }
  
  static kern_return_t
--sweet_amfi_query_string(__unused const void *os_entitlements,
+-fuxi_amfi_query_string(__unused const void *os_entitlements,
 -    __unused const char *entitlement_name, __unused const char *entitlement_value)
-+sweet_amfi_query_string(const void *os_entitlements,
++fuxi_amfi_query_string(const void *os_entitlements,
 +    const char *entitlement_name, const char *entitlement_value)
  {
 -	return KERN_DENIED;
-+	return sweet_entitlements_string(os_entitlements, entitlement_name, entitlement_value) ?
++	return fuxi_entitlements_string(os_entitlements, entitlement_name, entitlement_value) ?
 +	       KERN_SUCCESS : KERN_DENIED;
  }
  
  static kern_return_t
--sweet_amfi_query_string_with_proc(__unused const proc_t proc,
+-fuxi_amfi_query_string_with_proc(__unused const proc_t proc,
 -    __unused const char *entitlement_name, __unused const char *entitlement_value)
-+sweet_amfi_query_string_with_proc(const proc_t proc,
++fuxi_amfi_query_string_with_proc(const proc_t proc,
 +    const char *entitlement_name, const char *entitlement_value)
  {
 -	return KERN_DENIED;
-+	return sweet_amfi_query_string(sweet_proc_entitlements(proc), entitlement_name,
++	return fuxi_amfi_query_string(fuxi_proc_entitlements(proc), entitlement_name,
 +	           entitlement_value);
  }
  
  static kern_return_t
--sweet_amfi_copy_object(__unused const void *os_entitlements,
+-fuxi_amfi_copy_object(__unused const void *os_entitlements,
 -    __unused const char *entitlement_name, void **entitlement_object)
-+sweet_amfi_copy_object(const void *os_entitlements,
++fuxi_amfi_copy_object(const void *os_entitlements,
 +    const char *entitlement_name, void **entitlement_object)
  {
-+	void *obj = sweet_entitlements_copy_object(os_entitlements, entitlement_name);
++	void *obj = fuxi_entitlements_copy_object(os_entitlements, entitlement_name);
  	if (entitlement_object) {
 -		*entitlement_object = NULL;
 +		*entitlement_object = obj;
@@ -213,28 +213,28 @@
  }
  
  static kern_return_t
--sweet_amfi_copy_object_with_proc(__unused const proc_t proc,
+-fuxi_amfi_copy_object_with_proc(__unused const proc_t proc,
 -    __unused const char *entitlement_name, void **entitlement_object)
-+sweet_amfi_copy_object_with_proc(const proc_t proc,
++fuxi_amfi_copy_object_with_proc(const proc_t proc,
 +    const char *entitlement_name, void **entitlement_object)
  {
 -	if (entitlement_object) {
 -		*entitlement_object = NULL;
 -	}
 -	return KERN_NOT_FOUND;
-+	return sweet_amfi_copy_object(sweet_proc_entitlements(proc), entitlement_name,
++	return fuxi_amfi_copy_object(fuxi_proc_entitlements(proc), entitlement_name,
 +	           entitlement_object);
  }
  
- static const amfi_t sweet_amfi = {
+ static const amfi_t fuxi_amfi = {
 @@ -170,7 +242,52 @@
- sweet_amfi_register(void)
+ fuxi_amfi_register(void)
  {
- 	amfi_interface_register(&sweet_amfi);
+ 	amfi_interface_register(&fuxi_amfi);
 -	printf("FUXI AMFI: built-in interface registered (no entitlements)\n");
 +	printf("FUXI AMFI: built-in interface registered (XML entitlements)\n");
  }
- STARTUP(EARLY_BOOT, STARTUP_RANK_MIDDLE, sweet_amfi_register);
+ STARTUP(EARLY_BOOT, STARTUP_RANK_MIDDLE, fuxi_amfi_register);
 +
 +/*
 + * Every signed binary on the root filesystem is a platform binary. New
@@ -242,7 +242,7 @@
 + * the read-only blob itself) get their entitlements here.
 + */
 +static int
-+sweet_amfi_vnode_check_signature(struct vnode *vp, __unused struct label *label,
++fuxi_amfi_vnode_check_signature(struct vnode *vp, __unused struct label *label,
 +    __unused cpu_type_t cpu_type, struct cs_blob *cs_blob,
 +    unsigned int *cs_flags, __unused unsigned int *signer_type,
 +    __unused int flags, __unused unsigned int platform,
@@ -253,30 +253,30 @@
 +		*cs_flags |= CS_PLATFORM_BINARY;
 +	}
 +	if (cs_blob != cs_blob->csb_ro_addr && cs_blob->csb_entitlements == NULL) {
-+		sweet_amfi_attach_entitlements(cs_blob);
++		fuxi_amfi_attach_entitlements(cs_blob);
 +	}
 +	return 0;
 +}
 +
-+static const struct mac_policy_ops sweet_amfi_mac_ops = {
-+	.mpo_vnode_check_signature = sweet_amfi_vnode_check_signature,
++static const struct mac_policy_ops fuxi_amfi_mac_ops = {
++	.mpo_vnode_check_signature = fuxi_amfi_vnode_check_signature,
 +};
 +
-+static struct mac_policy_conf sweet_amfi_mac_conf = {
++static struct mac_policy_conf fuxi_amfi_mac_conf = {
 +	.mpc_name = "FUXI AMFI",
 +	.mpc_fullname = "FUXI built-in Mobile File Integrity",
-+	.mpc_ops = &sweet_amfi_mac_ops,
++	.mpc_ops = &fuxi_amfi_mac_ops,
 +};
 +
-+static mac_policy_handle_t sweet_amfi_mac_handle;
++static mac_policy_handle_t fuxi_amfi_mac_handle;
 +
 +/* Called from bsd_init once MAC policies can register, before any exec. */
-+void sweet_amfi_policy_register(void);
++void fuxi_amfi_policy_register(void);
 +
 +void
-+sweet_amfi_policy_register(void)
++fuxi_amfi_policy_register(void)
 +{
-+	int error = mac_policy_register(&sweet_amfi_mac_conf, &sweet_amfi_mac_handle, NULL);
++	int error = mac_policy_register(&fuxi_amfi_mac_conf, &fuxi_amfi_mac_handle, NULL);
 +	printf("FUXI AMFI: platform binary policy %s (%d)\n",
 +	    error ? "NOT registered" : "registered", error);
 +}
@@ -296,7 +296,7 @@
 + *
 + * Apple's AMFI keeps a CoreEntitlements context per code signature; that
 + * library is closed. Here each signature with an XML entitlements blob gets
-+ * a SweetEntitlements object: the blob parsed into an OSDictionary (the
++ * a FuxiEntitlements object: the blob parsed into an OSDictionary (the
 + * representation IOKit and the kernel KPIs hand out) plus the original XML,
 + * which csops(CS_OPS_ENTITLEMENTS_BLOB) returns. The blob was already
 + * checked against the code directory by csblob_get_entitlements().
@@ -312,8 +312,8 @@
 +#include <libkern/c++/OSUnserialize.h>
 +#include <kern/cs_blobs.h>
 +
-+class SweetEntitlements : public OSObject {
-+	OSDeclareDefaultStructors(SweetEntitlements);
++class FuxiEntitlements : public OSObject {
++	OSDeclareDefaultStructors(FuxiEntitlements);
 +
 +public:
 +	OSDictionary *dict;
@@ -324,16 +324,16 @@
 +	void free(void) APPLE_KEXT_OVERRIDE;
 +};
 +
-+OSDefineMetaClassAndStructors(SweetEntitlements, OSObject);
++OSDefineMetaClassAndStructors(FuxiEntitlements, OSObject);
 +
 +bool
-+SweetEntitlements::init(void)
++FuxiEntitlements::init(void)
 +{
 +	return OSObject::init();
 +}
 +
 +void
-+SweetEntitlements::free(void)
++FuxiEntitlements::free(void)
 +{
 +	OSSafeReleaseNULL(dict);
 +	if (xml) {
@@ -343,16 +343,16 @@
 +	OSObject::free();
 +}
 +
-+static SweetEntitlements *
-+sweet_ent(const void *obj)
++static FuxiEntitlements *
++fuxi_ent(const void *obj)
 +{
-+	return OSDynamicCast(SweetEntitlements, (OSObject *)(uintptr_t)obj);
++	return OSDynamicCast(FuxiEntitlements, (OSObject *)(uintptr_t)obj);
 +}
 +
 +extern "C" {
 +/* Parsed entitlements for one XML blob (header included), or NULL. Retained. */
 +void *
-+sweet_entitlements_create(const CS_GenericBlob *blob, size_t blob_len)
++fuxi_entitlements_create(const CS_GenericBlob *blob, size_t blob_len)
 +{
 +	if (blob == NULL || blob_len <= sizeof(CS_GenericBlob) ||
 +	    ntohl(blob->magic) != CSMAGIC_EMBEDDED_ENTITLEMENTS ||
@@ -377,7 +377,7 @@
 +		return NULL;
 +	}
 +
-+	SweetEntitlements *ent = OSTypeAlloc(SweetEntitlements);
++	FuxiEntitlements *ent = OSTypeAlloc(FuxiEntitlements);
 +	CS_GenericBlob *xml = (CS_GenericBlob *)kalloc_data(blob_len, Z_WAITOK);
 +	if (ent == NULL || !ent->init() || xml == NULL) {
 +		OSSafeReleaseNULL(ent);
@@ -396,9 +396,9 @@
 +
 +/* The entitlements as an OSDictionary. Retained. */
 +void *
-+sweet_entitlements_copy_dict(const void *obj)
++fuxi_entitlements_copy_dict(const void *obj)
 +{
-+	SweetEntitlements *ent = sweet_ent(obj);
++	FuxiEntitlements *ent = fuxi_ent(obj);
 +	if (ent == NULL) {
 +		return NULL;
 +	}
@@ -408,9 +408,9 @@
 +
 +/* A kalloc_data copy of the XML blob; the caller frees it (blob length). */
 +bool
-+sweet_entitlements_copy_xml(const void *obj, CS_GenericBlob **out)
++fuxi_entitlements_copy_xml(const void *obj, CS_GenericBlob **out)
 +{
-+	SweetEntitlements *ent = sweet_ent(obj);
++	FuxiEntitlements *ent = fuxi_ent(obj);
 +	if (ent == NULL) {
 +		return false;
 +	}
@@ -425,17 +425,17 @@
 +
 +/* name is true (a boolean entitlement). */
 +bool
-+sweet_entitlements_bool(const void *obj, const char *name)
++fuxi_entitlements_bool(const void *obj, const char *name)
 +{
-+	SweetEntitlements *ent = sweet_ent(obj);
++	FuxiEntitlements *ent = fuxi_ent(obj);
 +	return ent != NULL && ent->dict->getObject(name) == kOSBooleanTrue;
 +}
 +
 +/* name is the string value, or an array containing it. */
 +bool
-+sweet_entitlements_string(const void *obj, const char *name, const char *value)
++fuxi_entitlements_string(const void *obj, const char *name, const char *value)
 +{
-+	SweetEntitlements *ent = sweet_ent(obj);
++	FuxiEntitlements *ent = fuxi_ent(obj);
 +	if (ent == NULL || value == NULL) {
 +		return false;
 +	}
@@ -456,17 +456,17 @@
 +
 +/* Number of entitlements. */
 +unsigned int
-+sweet_entitlements_count(const void *obj)
++fuxi_entitlements_count(const void *obj)
 +{
-+	SweetEntitlements *ent = sweet_ent(obj);
++	FuxiEntitlements *ent = fuxi_ent(obj);
 +	return ent != NULL ? ent->dict->getCount() : 0;
 +}
 +
 +/* The value of name, or NULL. Retained. */
 +void *
-+sweet_entitlements_copy_object(const void *obj, const char *name)
++fuxi_entitlements_copy_object(const void *obj, const char *name)
 +{
-+	SweetEntitlements *ent = sweet_ent(obj);
++	FuxiEntitlements *ent = fuxi_ent(obj);
 +	OSObject *v = ent != NULL ? ent->dict->getObject(name) : NULL;
 +	if (v != NULL) {
 +		v->retain();

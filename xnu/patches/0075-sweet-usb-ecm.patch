@@ -18,7 +18,7 @@
 +#include <netinet/in.h>
  
  extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
- void sweet_usb_probe(void);
+ void fuxi_usb_probe(void);
 @@ -184,10 +196,25 @@
  #define UD_EVT_SIZE     0x1000
  #define UD_TRB_OUT      0x1000          /* ep0 OUT TRB */
@@ -331,7 +331,7 @@
 +	struct ifnet_init_eparams init;
 +	static lck_grp_t *grp;
 +
-+	grp = lck_grp_alloc_init("sweet_usb", LCK_GRP_ATTR_NULL);
++	grp = lck_grp_alloc_init("fuxi_usb", LCK_GRP_ATTR_NULL);
 +	ud.lock = lck_mtx_alloc_init(grp, LCK_ATTR_NULL);
 +
 +	bzero(&init, sizeof(init));

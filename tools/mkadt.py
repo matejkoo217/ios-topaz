@@ -341,9 +341,9 @@ def build(machine='fuxi', seed=None, qemu=False, highmem=False, native=False):
     ])
 
     # Direct sweet-timer root node for hardware timer frame reference
-    sweet_timer_nodes = []
+    fuxi_timer_nodes = []
     if mach.get('timer_base') and not qemu:
-        sweet_timer_nodes.append(node('sweet-timer', [
+        fuxi_timer_nodes.append(node('sweet-timer', [
             ph(),
             ('compatible', cstr('qcom,arch-mem-timer')),
             ('reg', u64(mach['timer_base'], mach['timer_size'])),
@@ -372,14 +372,14 @@ def build(machine='fuxi', seed=None, qemu=False, highmem=False, native=False):
 
     compat_root_str = b''.join(cstr(c) for c in mach['compat_root'])
 
-    root_children = [chosen, defaults, cpus, arm_io, fbcon, buttons] + product + sweet_timer_nodes
+    root_children = [chosen, defaults, cpus, arm_io, fbcon, buttons] + product + fuxi_timer_nodes
     if not qemu and mach['has_ufs']:
         root_children.append(ufs)
 
     # Identity of the iPhone X whose userland runs here: compatible[0] is
     # hw.model/hw.target (D22AP), model is hw.machine/hw.product
     # (iPhone10,3). 'xiaomi,sweet' and qcom,kryo470 stay because the
-    # SweetPlatformExpert and CPU IONameMatch still use them.
+    # FuxiPlatformExpert and CPU IONameMatch still use them.
     return node('device-tree', [
         ph(),
         ('compatible', compat_root_str),

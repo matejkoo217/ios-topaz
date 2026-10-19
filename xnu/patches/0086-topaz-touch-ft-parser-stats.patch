@@ -16,7 +16,7 @@ index c810ee9..61f7769 100644
 @@ -383,11 +387,15 @@ touch_report(uint32_t mask, const int *x, const int *y)
  		if (mask & bit) {
  			if (!(st.active & bit) || x[id] != st.x[id] || y[id] != st.y[id]) {
- 				sweet_hid_touch((int)id, 1, x[id], y[id]);
+ 				fuxi_hid_touch((int)id, 1, x[id], y[id]);
 +				st.s_down++;
 +				st.s_lastx = x[id];
 +				st.s_lasty = y[id];
@@ -24,7 +24,7 @@ index c810ee9..61f7769 100644
  			st.x[id] = x[id];
  			st.y[id] = y[id];
  		} else if (st.active & bit) {
- 			sweet_hid_touch((int)id, 0, st.x[id], st.y[id]);
+ 			fuxi_hid_touch((int)id, 0, st.x[id], st.y[id]);
 +			st.s_up++;
  		}
  	}

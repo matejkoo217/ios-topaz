@@ -146,12 +146,12 @@ def main():
     check('arm-io/timer frame address == 0x17420000', timer_phys == 0x17420000, f'0x{timer_phys:x}')
     check('arm-io/timer phys-addr property == 0x17420000', u64(timer_armio['props']['phys-addr'][1]) == 0x17420000, '0x17420000')
 
-    sweet_timer = root['children']['sweet-timer']
-    sweet_timer_reg = u64_list(sweet_timer['props']['reg'][1])
-    check('sweet-timer root node reg == 0x17420000', sweet_timer_reg[0] == 0x17420000, f'0x{sweet_timer_reg[0]:x}')
-    check('sweet-timer vtimer-intid == 27', u32(sweet_timer['props']['virtual-timer-intid'][1]) == 27, '27')
-    check('sweet-timer ptimer-intid == 30', u32(sweet_timer['props']['physical-timer-intid'][1]) == 30, '30')
-    check('sweet-timer stride == 0x40000', u32(sweet_timer['props']['stride'][1]) == 0x40000, '0x40000')
+    fuxi_timer = root['children']['sweet-timer']
+    fuxi_timer_reg = u64_list(fuxi_timer['props']['reg'][1])
+    check('sweet-timer root node reg == 0x17420000', fuxi_timer_reg[0] == 0x17420000, f'0x{fuxi_timer_reg[0]:x}')
+    check('sweet-timer vtimer-intid == 27', u32(fuxi_timer['props']['virtual-timer-intid'][1]) == 27, '27')
+    check('sweet-timer ptimer-intid == 30', u32(fuxi_timer['props']['physical-timer-intid'][1]) == 30, '30')
+    check('sweet-timer stride == 0x40000', u32(fuxi_timer['props']['stride'][1]) == 0x40000, '0x40000')
 
     # 6. Continuous splash framebuffer (sweet-fbcon)
     fbcon = root['children']['sweet-fbcon']
