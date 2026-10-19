@@ -22,7 +22,15 @@ It lands in whatever the boot partition holds (Android), where the host can
 Harness: applied=109 skipped=0.
 --- a/bsd/dev/fuxi_usb.c
 +++ b/bsd/dev/fuxi_usb.c
-@@ -718,6 +718,8 @@
+@@ -25,6 +25,7 @@
+ #include <sys/kpi_mbuf.h>
+ #include <sys/kpi_socket.h>
+ #include <sys/sockio.h>
++#include <IOKit/IOPlatformExpert.h>   /* PEHaltRestart */
+ #include <net/if.h>
+ #include <net/if_types.h>
+ #include <net/ethernet.h>
+@@ -718,6 +719,8 @@
  }
  
  /* ue0, 192.168.7.2/24 (the host side is 192.168.7.1). */
@@ -31,7 +39,7 @@ Harness: applied=109 skipped=0.
  static void
  ud_if_create(void)
  {
-@@ -790,6 +792,7 @@
+@@ -790,6 +793,7 @@
  	}
  	ifnet_set_flags(ud.ifp, IFF_UP | IFF_RUNNING, IFF_UP | IFF_RUNNING);
  	printf("FUXI USB: ue0 192.168.7.2/24 %s (err %d)\n", err ? "NOT configured" : "up", err);
@@ -39,7 +47,7 @@ Harness: applied=109 skipped=0.
  }
  
  static void
-@@ -863,6 +866,137 @@
+@@ -863,6 +867,137 @@
  	}
  }
  
@@ -58,14 +66,14 @@ Harness: applied=109 skipped=0.
 + * enumerated there is exactly one sender -- the host -- so no filtering beyond
 + * the port is needed.
 + */
-+#define FUXI_CMD_PORT   5141
++#define FUXI_CMD_PORT   5141u
 +
 +static void
 +ud_cmd_reply(socket_t so, struct sockaddr_in *to, const char *text)
 +{
 +	struct iovec iov = { .iov_base = (void *)text, .iov_len = strlen(text) };
 +	struct msghdr msg = {
-+		.msg_name = to, .msg_namelen = sizeof(*to),
++		.msg_name = to, .msg_namelen = (socklen_t)sizeof(*to),
 +		.msg_iov = &iov, .msg_iovlen = 1,
 +	};
 +	size_t sent = 0;
@@ -156,7 +164,7 @@ Harness: applied=109 skipped=0.
 +		bzero(&msg, sizeof(msg));
 +		bzero(&from, sizeof(from));
 +		msg.msg_name = &from;
-+		msg.msg_namelen = sizeof(from);
++		msg.msg_namelen = (socklen_t)sizeof(from);
 +		if (sock_receivembuf(so, &msg, 0, &m, &len) != 0 || m == NULL) {
 +			if (m != NULL) {
 +				mbuf_freem(m);
@@ -177,7 +185,7 @@ Harness: applied=109 skipped=0.
  static void
  ud_thread(void *arg __unused, wait_result_t wr __unused)
  {
-@@ -895,6 +1029,17 @@
+@@ -895,6 +1030,17 @@
   * so the boot is included. Nothing here may print (it would feed itself).
   * Boot-arg sweetusblog=0 disables it.
   */

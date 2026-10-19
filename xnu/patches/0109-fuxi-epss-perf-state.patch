@@ -23,16 +23,17 @@ bring-up prints.
 Harness: applied=108 skipped=0.
 --- a/bsd/dev/fuxi_sample.c
 +++ b/bsd/dev/fuxi_sample.c
-@@ -24,6 +24,8 @@
+@@ -24,6 +24,9 @@
  #include <kern/task.h>
  #include <kern/thread.h>
  #include <pexpert/pexpert.h>
++#include <machine/machine_routines.h>   /* ml_io_map */
 +#include <vm/pmap.h>
 +#include <vm/vm_kern.h>
  
  extern task_t proc_task(proc_t);
  extern int hz;
-@@ -100,6 +102,79 @@
+@@ -100,6 +103,79 @@
  	return (uint32_t)(((c1 - c0) * cntfrq) / ((t1 - t0) * 1000));
  }
  
@@ -112,7 +113,7 @@ Harness: applied=108 skipped=0.
  static void
  fuxi_cpu_report(const char *tag)
  {
-@@ -143,6 +218,7 @@
+@@ -143,6 +219,7 @@
  		return;
  	}
  	fuxi_cpu_report("boot");
