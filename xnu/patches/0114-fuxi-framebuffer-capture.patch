@@ -65,17 +65,18 @@ Harness: applied=113 skipped=0.
  	if (fbcon_base != NULL) {
 --- a/bsd/dev/fuxi_usb.c
 +++ b/bsd/dev/fuxi_usb.c
-@@ -406,6 +406,9 @@
+@@ -406,6 +406,10 @@
   */
  #define FUXI_PSCI_SYSTEM_RESET  0x84000009ULL
  
-+/* framebuffer grab, defined below; started as its own thread */
-+static int fuxi_fb_start(uint32_t scale);
++/* framebuffer grab: a request flag for the capture thread */
++static int fuxi_fb_kick(uint32_t scale);
++static void fuxi_fb_start_thread(void);
 +
  static void
  fuxi_soc_reset(void)
  {
-@@ -473,11 +476,24 @@
+@@ -473,11 +477,24 @@
  	}
  	if (len == 4 && strncmp(line, "help", 4) == 0) {
  		n = snprintf(reply, sizeof(reply),
@@ -93,7 +94,7 @@ Harness: applied=113 skipped=0.
 +				scale = scale * 10u + (uint32_t)(*q - '0');
 +			}
 +		}
-+		if (fuxi_fb_start(scale) == 0) {
++		if (fuxi_fb_kick(scale) == 0) {
 +			ud_cmd_send("fb: started\n", 12);
 +		} else {
 +			ud_cmd_send("fb: busy or no framebuffer\n", 30);
@@ -101,7 +102,7 @@ Harness: applied=113 skipped=0.
  	} else if (len == 3 && strncmp(line, "cpu", 3) == 0) {
  		uint32_t khz = fuxi_cpu_khz();
  		/* Cluster clocks go to the console stream (readable on 5140). */
-@@ -952,6 +968,200 @@
+@@ -952,6 +969,210 @@
  	(void)sock_send(so, &msg, 0, &sent);
  }
  
@@ -110,18 +111,19 @@ Harness: applied=113 skipped=0.
 + *
 + * A boot that stopped at the progress bar and one that finished look identical
 + * when the only report is a photo.  The console already owns the panel
-+ * (pe_serial.c probes the "sweet-fbcon" node), so the kernel can read it and send
-+ * a decimated frame over the same link as the log:
++ * (pe_serial.c probes the "sweet-fbcon" node), so the kernel reads it and sends a
++ * decimated frame over the same link as the log:
 + *
 + *   "FUXIFB1\0" | frame u32 | chunk u32 | chunks u32 |
 + *   width u32 | height u32 | scale u32 | payload u32 | RGB triplets
 + *   to 192.168.7.1:5142
 + *
-+ * It runs in its own kernel thread on purpose.  The first version grabbed inside
-+ * the ethertype receive handler, so the link stopped answering while a thousand
-+ * datagrams went out, and the phone never came back.  A separate thread cannot
-+ * wedge the receive path, and the send is bounded: five consecutive failures or
-+ * FUXI_FB_CHUNK_MAX chunks and it stops with a line in the log.
++ * It runs in a persistent kernel thread that sleeps on a channel between grabs.
++ * The first version grabbed inside the ethertype receive handler: the phone
++ * stopped answering mid-frame and never came back.  A separate thread cannot wedge
++ * the receive path; the send is bounded by FUXI_FB_CHUNK_MAX and by five
++ * consecutive failures; and the thread outlives a grab instead of exiting (a
++ * one-shot thread would need thread_terminate, which bsd/dev cannot see).
 + */
 +#define FUXI_FB_PORT    5142u
 +#define FUXI_FB_MAGIC   "FUXIFB1"
@@ -146,7 +148,8 @@ Harness: applied=113 skipped=0.
 +static volatile uint32_t *fuxi_fb_base;
 +static uint32_t fuxi_fb_w, fuxi_fb_h, fuxi_fb_stride;
 +static uint32_t fuxi_fb_frame;
-+static bool fuxi_fb_busy;
++static uint32_t fuxi_fb_request;
++static int fuxi_fb_chan;
 +static uint8_t fuxi_fb_pkt[sizeof(struct fuxi_fb_hdr) + FUXI_FB_CHUNK];
 +
 +static bool
@@ -172,7 +175,7 @@ Harness: applied=113 skipped=0.
 +	return true;
 +}
 +
-+/* One datagram: header + the pixels collected so far. */
++/* One datagram: header plus the pixels collected so far. */
 +static void
 +fuxi_fb_flush(socket_t so, struct fuxi_fb_hdr *h, uint32_t used, uint32_t index,
 +    uint32_t *errors)
@@ -205,17 +208,15 @@ Harness: applied=113 skipped=0.
 +}
 +
 +static void
-+fuxi_fb_thread(void *arg, wait_result_t wr)
++fuxi_fb_grab(uint32_t scale)
 +{
-+	uint32_t scale = (uint32_t)(uintptr_t)arg;
 +	struct fuxi_fb_hdr h;
 +	uint8_t *payload = fuxi_fb_pkt + sizeof(h);
 +	socket_t so = NULL;
 +	uint32_t ow, oh, chunks, chunk = 0, used = 0, errors = 0;
 +
-+	(void)wr;
 +	if (!fuxi_fb_map()) {
-+		goto out;
++		return;
 +	}
 +	if (scale == 0) {
 +		scale = FUXI_FB_SCALE;
@@ -223,17 +224,16 @@ Harness: applied=113 skipped=0.
 +	ow = fuxi_fb_w / scale;
 +	oh = fuxi_fb_h / scale;
 +	if (ow == 0 || oh == 0) {
-+		goto out;
++		return;
 +	}
 +	chunks = (ow * oh * 3u + FUXI_FB_CHUNK - 1) / FUXI_FB_CHUNK;
 +	if (chunks > FUXI_FB_CHUNK_MAX) {
 +		printf("FUXI FB: %u chunks exceeds the ceiling; not sending\n", chunks);
-+		goto out;
++		return;
 +	}
 +	if (sock_socket(PF_INET, SOCK_DGRAM, 0, NULL, NULL, &so) != 0) {
 +		printf("FUXI FB: socket failed\n");
-+		so = NULL;
-+		goto out;
++		return;
 +	}
 +
 +	bzero(&h, sizeof(h));
@@ -271,34 +271,53 @@ Harness: applied=113 skipped=0.
 +		fuxi_fb_flush(so, &h, used, chunk++, &errors);
 +	}
 +done:
++	sock_close(so);
 +	printf("FUXI FB: frame %u %ux%u scale %u, %u chunks, %u errors\n",
 +	    h.frame, ow, oh, scale, chunk, errors);
-+out:
-+	if (so != NULL) {
-+		sock_close(so);
-+	}
-+	fuxi_fb_busy = false;
-+	thread_terminate(current_thread());
 +}
 +
-+static int
-+fuxi_fb_start(uint32_t scale)
++static void
++fuxi_fb_thread(__unused void *arg, __unused wait_result_t wr)
++{
++	for (;;) {
++		(void)tsleep(&fuxi_fb_chan, PZERO, "fuxifb", 0);
++		if (fuxi_fb_request != 0) {
++			uint32_t scale = fuxi_fb_request;
++			fuxi_fb_request = 0;
++			fuxi_fb_grab(scale);
++		}
++	}
++}
++
++static void
++fuxi_fb_start_thread(void)
 +{
 +	thread_t thread;
 +
-+	if (fuxi_fb_busy) {
++	if (kernel_thread_start(fuxi_fb_thread, NULL, &thread) == KERN_SUCCESS) {
++		thread_deallocate(thread);
++	}
++}
++
++static int
++fuxi_fb_kick(uint32_t scale)
++{
++	if (!fuxi_fb_map()) {
 +		return -1;
 +	}
-+	fuxi_fb_busy = true;
-+	if (kernel_thread_start(fuxi_fb_thread, (void *)(uintptr_t)scale,
-+	    &thread) != KERN_SUCCESS) {
-+		fuxi_fb_busy = false;
-+		return -1;
-+	}
-+	thread_deallocate(thread);
++	fuxi_fb_request = scale ? scale : FUXI_FB_SCALE;
++	wakeup(&fuxi_fb_chan);
 +	return 0;
 +}
 +
  static void
  ud_cmd_dispatch(socket_t so, char *line)
  {
+@@ -1095,6 +1316,7 @@
+ 		thread_deallocate(thread);
+ 		printf("FUXI USB: command channel on udp %u\n", FUXI_CMD_PORT);
+ 	}
++	fuxi_fb_start_thread();          /* sleeps until 'fb' asks for a frame */
+ }
+ 
+ extern uint32_t fuxi_log_copy(uint64_t *pos, char *out, uint32_t max);
