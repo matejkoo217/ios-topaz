@@ -69,8 +69,8 @@ Harness: applied=113 skipped=0.
   */
  #define FUXI_PSCI_SYSTEM_RESET  0x84000009ULL
  
-+/* framebuffer grab, defined with the rest of the capture code below */
-+static int fuxi_fb_capture(socket_t so, uint32_t scale);
++/* framebuffer grab, defined below; started as its own thread */
++static int fuxi_fb_start(uint32_t scale);
 +
  static void
  fuxi_soc_reset(void)
@@ -93,34 +93,41 @@ Harness: applied=113 skipped=0.
 +				scale = scale * 10u + (uint32_t)(*q - '0');
 +			}
 +		}
-+		if (fuxi_fb_capture(NULL, scale) != 0) {
-+			ud_cmd_send("fb: no framebuffer\n", 18);
++		if (fuxi_fb_start(scale) == 0) {
++			ud_cmd_send("fb: started\n", 12);
 +		} else {
-+			ud_cmd_send("fb: sent\n", 9);
++			ud_cmd_send("fb: busy or no framebuffer\n", 30);
 +		}
  	} else if (len == 3 && strncmp(line, "cpu", 3) == 0) {
  		uint32_t khz = fuxi_cpu_khz();
  		/* Cluster clocks go to the console stream (readable on 5140). */
-@@ -952,6 +968,164 @@
+@@ -952,6 +968,200 @@
  	(void)sock_send(so, &msg, 0, &sent);
  }
  
 +/*
 + * Framebuffer capture: the eyes on this port.
 + *
-+ * A boot that stops at the progress bar and a boot that finished look the same
-+ * when the only report is a photo.  This reads the panel memory the console
-+ * already owns and streams a decimated frame over the same link as the log, so a
-+ * claim about the screen can be checked instead of believed.
++ * A boot that stopped at the progress bar and one that finished look identical
++ * when the only report is a photo.  The console already owns the panel
++ * (pe_serial.c probes the "sweet-fbcon" node), so the kernel can read it and send
++ * a decimated frame over the same link as the log:
 + *
-+ * Wire format, little endian, UDP to 192.168.7.1:5142:
 + *   "FUXIFB1\0" | frame u32 | chunk u32 | chunks u32 |
 + *   width u32 | height u32 | scale u32 | payload u32 | RGB triplets
++ *   to 192.168.7.1:5142
++ *
++ * It runs in its own kernel thread on purpose.  The first version grabbed inside
++ * the ethertype receive handler, so the link stopped answering while a thousand
++ * datagrams went out, and the phone never came back.  A separate thread cannot
++ * wedge the receive path, and the send is bounded: five consecutive failures or
++ * FUXI_FB_CHUNK_MAX chunks and it stops with a line in the log.
 + */
 +#define FUXI_FB_PORT    5142u
 +#define FUXI_FB_MAGIC   "FUXIFB1"
 +#define FUXI_FB_CHUNK   1368            /* payload bytes per datagram */
 +#define FUXI_FB_SCALE   4u              /* decimation; 'fb [scale]' overrides */
++#define FUXI_FB_CHUNK_MAX 4096u         /* ceiling: ~5.5 MB of RGB */
 +
 +extern bool fuxi_fbcon_info(uint64_t *pa, uint64_t *len, uint32_t *w, uint32_t *h,
 +    uint32_t *stride);
@@ -139,6 +146,7 @@ Harness: applied=113 skipped=0.
 +static volatile uint32_t *fuxi_fb_base;
 +static uint32_t fuxi_fb_w, fuxi_fb_h, fuxi_fb_stride;
 +static uint32_t fuxi_fb_frame;
++static bool fuxi_fb_busy;
 +static uint8_t fuxi_fb_pkt[sizeof(struct fuxi_fb_hdr) + FUXI_FB_CHUNK];
 +
 +static bool
@@ -164,8 +172,10 @@ Harness: applied=113 skipped=0.
 +	return true;
 +}
 +
++/* One datagram: header + the pixels collected so far. */
 +static void
-+fuxi_fb_send(socket_t so, struct fuxi_fb_hdr *h, uint32_t used, uint32_t index)
++fuxi_fb_flush(socket_t so, struct fuxi_fb_hdr *h, uint32_t used, uint32_t index,
++    uint32_t *errors)
 +{
 +	struct sockaddr_in to;
 +	struct iovec iov;
@@ -189,30 +199,21 @@ Harness: applied=113 skipped=0.
 +	msg.msg_namelen = (socklen_t)sizeof(to);
 +	msg.msg_iov = &iov;
 +	msg.msg_iovlen = 1;
-+	(void)sock_send(so, &msg, 0, &sent);
++	if (sock_send(so, &msg, 0, &sent) != 0) {
++		(*errors)++;
++	}
 +}
 +
-+static int
-+fuxi_fb_capture(socket_t so, uint32_t scale)
++static void
++fuxi_fb_thread(void *arg, wait_result_t wr)
 +{
++	uint32_t scale = (uint32_t)(uintptr_t)arg;
 +	struct fuxi_fb_hdr h;
 +	uint8_t *payload = fuxi_fb_pkt + sizeof(h);
-+	uint32_t ow, oh, chunks, chunk = 0, used = 0;
-+	socket_t own = NULL;
-+	int ret = -1;
++	socket_t so = NULL;
++	uint32_t ow, oh, chunks, chunk = 0, used = 0, errors = 0;
 +
-+	/*
-+	 * Called from the ethertype dispatcher, which has no socket (it sends
-+	 * frames through the ifnet).  A datagram socket is cheap and sending does
-+	 * not need a bind, so open one for the duration of the grab.
-+	 */
-+	if (so == NULL) {
-+		if (sock_socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP, NULL, NULL, &own) != 0) {
-+			printf("FUXI FB: socket failed\n");
-+			return -1;
-+		}
-+		so = own;
-+	}
++	(void)wr;
 +	if (!fuxi_fb_map()) {
 +		goto out;
 +	}
@@ -225,6 +226,15 @@ Harness: applied=113 skipped=0.
 +		goto out;
 +	}
 +	chunks = (ow * oh * 3u + FUXI_FB_CHUNK - 1) / FUXI_FB_CHUNK;
++	if (chunks > FUXI_FB_CHUNK_MAX) {
++		printf("FUXI FB: %u chunks exceeds the ceiling; not sending\n", chunks);
++		goto out;
++	}
++	if (sock_socket(PF_INET, SOCK_DGRAM, 0, NULL, NULL, &so) != 0) {
++		printf("FUXI FB: socket failed\n");
++		so = NULL;
++		goto out;
++	}
 +
 +	bzero(&h, sizeof(h));
 +	memcpy(h.magic, FUXI_FB_MAGIC, 8);
@@ -242,8 +252,15 @@ Harness: applied=113 skipped=0.
 +			uint32_t px = row[x * scale];
 +
 +			if (used + 3 > FUXI_FB_CHUNK) {
-+				fuxi_fb_send(so, &h, used, chunk++);
++				fuxi_fb_flush(so, &h, used, chunk++, &errors);
 +				used = 0;
++				if (errors > 5) {
++					printf("FUXI FB: sends failing, aborting\n");
++					goto done;
++				}
++				if ((chunk & 63u) == 0) {
++					ud_sleep_ms(1);   /* let the TX queue drain */
++				}
 +			}
 +			payload[used++] = (uint8_t)(px >> 16);   /* R */
 +			payload[used++] = (uint8_t)(px >> 8);    /* G */
@@ -251,16 +268,35 @@ Harness: applied=113 skipped=0.
 +		}
 +	}
 +	if (used > 0) {
-+		fuxi_fb_send(so, &h, used, chunk++);
++		fuxi_fb_flush(so, &h, used, chunk++, &errors);
 +	}
-+	printf("FUXI FB: frame %u %ux%u scale %u in %u chunks\n", h.frame, ow, oh,
-+	    scale, chunk);
-+	ret = 0;
++done:
++	printf("FUXI FB: frame %u %ux%u scale %u, %u chunks, %u errors\n",
++	    h.frame, ow, oh, scale, chunk, errors);
 +out:
-+	if (own != NULL) {
-+		sock_close(own);
++	if (so != NULL) {
++		sock_close(so);
 +	}
-+	return ret;
++	fuxi_fb_busy = false;
++	thread_terminate(current_thread());
++}
++
++static int
++fuxi_fb_start(uint32_t scale)
++{
++	thread_t thread;
++
++	if (fuxi_fb_busy) {
++		return -1;
++	}
++	fuxi_fb_busy = true;
++	if (kernel_thread_start(fuxi_fb_thread, (void *)(uintptr_t)scale,
++	    &thread) != KERN_SUCCESS) {
++		fuxi_fb_busy = false;
++		return -1;
++	}
++	thread_deallocate(thread);
++	return 0;
 +}
 +
  static void
