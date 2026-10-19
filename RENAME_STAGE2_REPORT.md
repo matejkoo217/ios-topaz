@@ -164,8 +164,13 @@ skips. Final state: `staged=3 applied=100 skipped=0`.
 
 On the resulting tree:
 
-- every `FUXI_*` macro used has exactly one `#define`
-  (`FUXI_LSE` is an assembler `.macro`, not a preprocessor name);
+- every `FUXI_*` preprocessor macro used has exactly one `#define`; the four
+  that do not are not macros but names owned elsewhere and renamed in step with
+  their owners: `FUXI_HFS` (the `options FUXI_HFS` line in `config/MASTER`,
+  which the config system turns into `-DFUXI_HFS`), `FUXI_HFS_OBJS`,
+  `FUXI_AES_INC`/`FUXI_AES_ROOT` (make variables in `bsd/conf` and
+  `libkern/conf/Makefile.template`). `FUXI_LSE` is an assembler `.macro`,
+  not a preprocessor name;
 - no macro is defined twice with different values;
 - zero `ARM64_BOARD_CONFIG_SWEET`, zero `#define SWEET`, zero `#if … SWEET`;
 - every listed `bsd/fuxi_hfs/*.c`, `libkern/crypto/fuxi_*.c` exists;
