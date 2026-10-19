@@ -4,7 +4,7 @@ Booting with more than one CPU panics at cpu2:
 
   [0]ml_processor_register>cpu_id ... cluster_id 0 cpu_number 1 is type 0
   panic(cpu 0): SWEET CPU: invalid topology
-  cpu=2 mpidr=0x200 count=8 @SweetCPU.cpp:80
+  cpu=2 mpidr=0x200 count=8 @FuxiCPU.cpp:80
 
 cpu0 (mpidr 0x0) and cpu1 (0x100) register fine; cpu2 carries mpidr 0x200
 and SweetCPU::start rejects it because the bound is topaz's:
@@ -24,8 +24,8 @@ Note the boot that produced this panic had cpus=8 on the command line;
 the earlier working boot used cpus=1, which is why the limit was never
 hit until now.
 
---- a/iokit/Kernel/arm/SweetCPU.cpp
-+++ b/iokit/Kernel/arm/SweetCPU.cpp
+--- a/iokit/Kernel/arm/FuxiCPU.cpp
++++ b/iokit/Kernel/arm/FuxiCPU.cpp
 @@ -73,9 +73,21 @@
  	if (*(const uint32_t *)reg->getBytesNoCopy() != cpu->phys_id) {
  		return false;
@@ -45,6 +45,6 @@ hit until now.
  	if ((cpu->phys_id >> 8) > 1 || (cpu->phys_id & 0xff) > 3 ||
  	    topology->num_cpus > SWEET_SMP_MAX_CPUS) {
 +#endif
- 		panic("SWEET CPU: invalid topology cpu=%u mpidr=0x%x count=%u",
+ 		panic("FUXI CPU: invalid topology cpu=%u mpidr=0x%x count=%u",
  		    cpu->cpu_id, cpu->phys_id, topology->num_cpus);
  	}
