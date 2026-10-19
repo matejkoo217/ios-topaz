@@ -1,0 +1,141 @@
+fuxi: 0115 -- publish a diagnostic IOAcceleratorES so CoreAnimation has something to talk to
+
+backboardd matches IOProviderClass = IOAcceleratorES 325 times per boot and finds
+nothing, because this kernel has no graphics accelerator at all: no IOAccelerator,
+no IOGraphicsAccelerator2, no AGX driver.  That match is what CoreAnimation binds to
+before it will draw, so nothing is ever rendered -- SpringBoard and backboardd never
+crash, 194 daemons launch, and the screen still shows nothing new.
+
+This registers a service of exactly that class so the match succeeds, and its user
+client logs every selector with its scalar/structure sizes.  It does not render and
+does not pretend to: every method answers kIOReturnUnsupported, so what comes back
+is a list of what CoreAnimation wanted rather than a silent zero.
+
+Gated on sweetgfx=1 -- a boot without it behaves exactly as before, which matters
+while the graphics stack is still a question rather than a plan.
+
+Harness: applied=114 skipped=0.
+--- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
++++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
+@@ -159,6 +159,100 @@
+ 
+ OSDefineMetaClassAndStructors(IOMobileFramebufferUserClient, IOUserClient);
+ 
++
++/*
++ * A diagnostic accelerator nub.
++ *
++ * backboardd matches IOProviderClass = IOAcceleratorES 325 times per boot and finds
++ * nothing, because this kernel has no graphics accelerator of any kind -- no
++ * IOAccelerator, no IOGraphicsAccelerator2, no AGX driver.  That match is what
++ * CoreAnimation binds to before it will draw, so nothing is ever rendered and the
++ * progress image simply stays where it was, however healthy userland is.
++ *
++ * This publishes a service of exactly that class so the match succeeds, and its user
++ * client logs every selector it is asked for.  It does not render and it does not
++ * pretend to: every method answers kIOReturnUnsupported.  The point is the same as
++ * the AKS trace -- find out what CoreAnimation actually wants before writing it.
++ * Gated on sweetgfx=1 so a boot can be taken without this in the way.
++ */
++class IOAcceleratorESUserClient : public IOUserClient {
++	OSDeclareDefaultStructors(IOAcceleratorESUserClient);
++
++public:
++	IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *args,
++	    IOExternalMethodDispatch *dispatch, OSObject *target,
++	    void *reference) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(IOAcceleratorESUserClient, IOUserClient);
++
++IOReturn
++IOAcceleratorESUserClient::externalMethod(uint32_t selector, IOExternalMethodArguments *args,
++    __unused IOExternalMethodDispatch *dispatch, __unused OSObject *target,
++    __unused void *reference)
++{
++	char name[32];
++
++	proc_selfname(name, sizeof(name));
++	IOLog("FUXI GFX: %s sel %u in %u/%u out %u/%u\n", name, selector,
++	    args->scalarInputCount,
++	    args->structureInputDescriptor != NULL ?
++	    (uint32_t)args->structureInputDescriptor->getLength() : args->structureInputSize,
++	    args->scalarOutputCount,
++	    args->structureOutputDescriptor != NULL ?
++	    (uint32_t)args->structureOutputDescriptor->getLength() : args->structureOutputSize);
++	return kIOReturnUnsupported;
++}
++
++class IOAcceleratorES : public IOService {
++	OSDeclareDefaultStructors(IOAcceleratorES);
++
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++	IOReturn newUserClient(task_t owningTask, void *securityID, UInt32 type,
++	    OSDictionary *properties, IOUserClient **handler) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(IOAcceleratorES, IOService);
++
++bool
++IOAcceleratorES::start(IOService *provider)
++{
++	if (!IOService::start(provider)) {
++		return false;
++	}
++	setProperty(kIOUserClientClassKey, "IOAcceleratorESUserClient");
++	setProperty("IOClass", "IOAcceleratorES");
++	registerService();
++	return true;
++}
++
++IOReturn
++IOAcceleratorES::newUserClient(task_t owningTask, void *securityID, UInt32 type,
++    OSDictionary *properties, IOUserClient **handler)
++{
++	IOAcceleratorESUserClient *client = new IOAcceleratorESUserClient;
++
++	if (client == NULL) {
++		return kIOReturnNoMemory;
++	}
++	if (!client->initWithTask(owningTask, securityID, type, properties)) {
++		client->release();
++		return kIOReturnBadArgument;
++	}
++	if (!client->attach(this)) {
++		client->release();
++		return kIOReturnError;
++	}
++	if (!client->start(this)) {
++		client->detach(this);
++		client->release();
++		return kIOReturnError;
++	}
++	*handler = client;
++	return kIOReturnSuccess;
++}
++
+ bool
+ AppleCLCD::start(IOService *provider)
+ {
+@@ -239,6 +333,20 @@
+ 	setProperty("external", false);
+ 	setProperty("DisplayPipePlaneBaseAlignment", 64ULL, 32);
+ 	registerService();
++	{
++		int gfx = 0;
++		(void)PE_parse_boot_argn("sweetgfx", &gfx, sizeof(gfx));
++		if (gfx) {
++			IOAcceleratorES *acc = new IOAcceleratorES;
++			if (acc != NULL && acc->init()) {
++				acc->attach(this);
++				acc->registerService();
++				IOLog("FUXI GFX: IOAcceleratorES published (diagnostic, no rendering)\n");
++			} else {
++				OSSafeReleaseNULL(acc);
++			}
++		}
++	}
+ 	IOLog("FUXI FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u\n",
+ 	    fWidth, fHeight, fRowBytes, fPhys, fSurface->id, fLogicalW, fLogicalH);
+ 	return true;
