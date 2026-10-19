@@ -1,0 +1,50 @@
+fuxi: 0099 -- accept fuxi's 8 single-core clusters in the CPU topology check
+
+Booting with more than one CPU panics at cpu2:
+
+  [0]ml_processor_register>cpu_id ... cluster_id 0 cpu_number 1 is type 0
+  panic(cpu 0): SWEET CPU: invalid topology
+  cpu=2 mpidr=0x200 count=8 @SweetCPU.cpp:80
+
+cpu0 (mpidr 0x0) and cpu1 (0x100) register fine; cpu2 carries mpidr 0x200
+and SweetCPU::start rejects it because the bound is topaz's:
+
+  if ((cpu->phys_id >> 8) > 1 || (cpu->phys_id & 0xff) > 3 || ...)
+
+i.e. Aff1 (cluster) must be 0 or 1, the SM6225 shape of two 4-core
+clusters.  On fuxi (SM8550) all eight cores report a distinct Aff1:
+tools/mkadt.py sets cluster_id = core for fuxi, so the ADT's cpu0..cpu7
+regs are 0x000..0x700.  0x200 >> 8 == 2 fails "> 1" exactly as reported.
+
+Make the bound board-aware instead of widening it for everyone: fuxi
+allows Aff1 0..7 (Aff0 is effectively unused there), topaz keeps 0..1.
+SWEET_SMP_MAX_CPUS is already 8, so the count limit needs no change.
+
+Note the boot that produced this panic had cpus=8 on the command line;
+the earlier working boot used cpus=1, which is why the limit was never
+hit until now.
+
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -73,9 +73,21 @@
+ 	if (*(const uint32_t *)reg->getBytesNoCopy() != cpu->phys_id) {
+ 		return false;
+ 	}
++#if defined(ARM64_BOARD_CONFIG_FUXI)
++	/*
++	 * fuxi (SM8550): 8 cores, and the ADT gives each one its OWN Aff1
++	 * cluster (tools/mkadt.py sets cluster_id = core for fuxi), so phys_id
++	 * is 0x000, 0x100 .. 0x700 and Aff0 is always 0.  The topaz 2-cluster
++	 * bound below rejects cpu2 (0x200 >> 8 == 2) and panics with "invalid
++	 * topology" the moment cpus > 2 is allowed.
++	 */
++	if ((cpu->phys_id >> 8) > 7 || (cpu->phys_id & 0xff) > 3 ||
++	    topology->num_cpus > SWEET_SMP_MAX_CPUS) {
++#else
+ 	/* topaz (SM6225): MPIDR Aff1 = cluster, Aff0 = core: 0x0-0x3 A53, 0x100-0x103 A73 */
+ 	if ((cpu->phys_id >> 8) > 1 || (cpu->phys_id & 0xff) > 3 ||
+ 	    topology->num_cpus > SWEET_SMP_MAX_CPUS) {
++#endif
+ 		panic("SWEET CPU: invalid topology cpu=%u mpidr=0x%x count=%u",
+ 		    cpu->cpu_id, cpu->phys_id, topology->num_cpus);
+ 	}
