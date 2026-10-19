@@ -1,6 +1,26 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
-## Agent handoff / active work (2026-10-15, latest)
+## Agent handoff / active work (2026-10-19, latest)
+
+### >>> UPDATE 2026-10-19: FUXI (Xiaomi 13, SM8550) ADT RETARGET & SWEETXNU BOOT IMAGE READY (read first) <<<
+
+**MILESTONE: FUXI ADT RETARGETED, SWEETXNU PAYLOAD ASSEMBLED, AND BOOT-V4 IMAGE BUILT.**
+- **ADT Generator (`tools/mkadt.py`)**: retargeted to support `--machine {fuxi,topaz}` (defaulting to `fuxi`, while preserving the topaz reference path). Emits verified SM8550 hardware constants:
+  - GICv3 Distributor: `0x17100000` (size `0x10000`, relative `0x16100000`)
+  - GICv3 Redistributor: `0x17180000` (size `0x200000`, relative `0x16180000`)
+  - GICR Stride: `0x40000` (256 KiB)
+  - Memory-mapped timer frame: `0x17420000` (size `0x1000`, relative `0x16420000`)
+  - Timer PPIs: VTIMER 27 (`GIC_PPI 11`), PTIMER 30 (`GIC_PPI 14`)
+  - 8 CPUs (`cpu0`..`cpu7`) with MPIDRs `0x000, 0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0x700` and `cluster-id = core` (`MAX_CPU_CLUSTERS = 8` per PORT_FUXI D2)
+  - Continuous Splash Framebuffer: `0xb8000000` (43.0 MiB `0x2b00000`), 1080x2400 @ 32bpp, stride 4320
+  - UFS host controller: `0x01d84000` (size `0x3000`)
+  - High DDR System RAM: `0x880000000` (944 MiB `0x3b000000`), or `--highmem` `0x8c0000000` (2.75 GiB `0xb0000000`)
+- **Independent Binary Verification (`tools/verify_fuxi_adt.py`)**: raw byte verification script created. Unpacks `xnu/out/fuxi.adt` and validates all 56 hardware constants and structure properties. **56/56 assertions PASSED**.
+- **`SWEETXNU` Payload (`xnu/out/fuxi.payload`)**: built with `tools/mkpayload.py` combining `xnu/out/kernel.development.fuxi` (17,223,856 bytes) and `xnu/out/fuxi.adt` (11,220 bytes) with cmdline `debug=0x14e serial=3 keepsyms=1 -enable_kprintf_spam -noprogress console=ttyMSM0,115200n8 video=vfb:640x400,bpp:32`. Payload size: 16,613,504 bytes, SHA256 `0dc991ce3615ce29a8f39af0291ca29709290c0909655bcff60f9e75fa249380`. Chained fixups: 0. Magic `SWEETXNU` verified at byte 0.
+- **Android Boot Image v4 (`shim/out/shim-boot.img`)**: built with `shim/build.sh ../xnu/out/fuxi.payload`. Shim binary padded to 0x2d000 followed by the payload. Size: 16,809,984 bytes, SHA256 `c43d7a2165f5b0f2261de07785cf5ecca637f9afd72a28d6135079696cd9be11`. Type: `Android bootimg, kernel (0x60), ramdisk (0x630)`.
+- **Shim diagnostic toggle**: `shim/shim.c` and `shim/build.sh` updated so building with a payload sets `FUXI_M1_DIAG=0` (calls `loader_boot(dtb)`), while building without arguments retains `FUXI_M1_DIAG=1` (hardware telemetry reset).
+- **Evidence & Documentation**: Full report in `ADT_FUXI.md`. Evidence captured in `/mnt/hdd/Bomb/macos-vm/evidence/adt-*.txt`.
+- **Next concrete action**: Load the validated RAM-only boot image on a physical fuxi device: `fastboot boot shim/out/shim-boot.img`. Observe early kernel console output via UART / framebuffer.
 
 ### >>> UPDATE 2026-10-18 (read first, then the 10-17 handoff below) <<<
 

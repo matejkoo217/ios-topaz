@@ -6,7 +6,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 CC=aarch64-linux-gnu-gcc
 OBJCOPY=aarch64-linux-gnu-objcopy
-CFLAGS="-O2 -ffreestanding -nostdlib -fno-pic -mgeneral-regs-only -mstrict-align -fno-stack-protector -Wall -Wextra"
+DIAG_DEFAULT=1
+[ -n "${1:-}" ] && DIAG_DEFAULT=0
+FUXI_M1_DIAG="${FUXI_M1_DIAG:-$DIAG_DEFAULT}"
+CFLAGS="-DFUXI_M1_DIAG=${FUXI_M1_DIAG} -DFUXI_REPORT=${FUXI_REPORT:-0} -DFUXI_TELEM=${FUXI_TELEM:-0}${FUXI_FAST:+ -DFUXI_FAST=1} -O2 -ffreestanding -nostdlib -fno-pic -mgeneral-regs-only -mstrict-align -fno-stack-protector -Wall -Wextra"
 mkdir -p out
 for f in start.S shim.c console.c mmu.c fdt.c loader.c ufs.c; do
 	$CC $CFLAGS -c $f -o out/${f%.*}.o
@@ -33,7 +36,7 @@ if [ -n "${1:-}" ]; then
 else
 	(cd out && rm -rf rd && mkdir rd && cd rd && find . | cpio -o -H newc --quiet | gzip -9 > ../ramdisk.bin)
 fi
-${MKBOOTIMG:-python3 /home/makr/work/topaz/mkbootimg_src/mkbootimg.py} --header_version 4 --kernel out/Image --ramdisk out/ramdisk.bin \
+${MKBOOTIMG:-python3 "$(dirname "$(realpath "$0")")/../tools/mkbootimg_src/mkbootimg.py"} --header_version 4 --kernel out/Image --ramdisk out/ramdisk.bin \
 	--os_version 13.0.0 --os_patch_level 2025-01 \
 	--cmdline "console=null" -o out/shim-boot.img
 # Host render of the console layout.

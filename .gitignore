@@ -1,10 +1,25 @@
 # device dumps: persist/modemst/fsg hold IMEI + calibration; live DT holds the serial
 backup/
+backups/
+device-dumps/
 dtb/
 recovery/
+logs/
+build/
+brief/
+*.orig
 # third-party/Apple sources fetched for reading
 research/
 shim/out/
 xnu/out/
 xnu/out-*/
 __pycache__/
+.verify/
+# Apple SDK / KDK material: licensed, must never be committed (see SDK_STRATEGY.md)
+.cache/
+*.sdk/
+*.sdk.tar.xz
+*.kdk/
+*.pkg
+*.dmg
+Xcode*.xip

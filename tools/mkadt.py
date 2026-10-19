@@ -1,64 +1,21 @@
 #!/usr/bin/env python3
-"""Build the minimal Apple Device Tree that the TOPAZ xnu needs to boot.
+"""Build the minimal Apple Device Tree that xnu needs to boot on Qualcomm SoCs.
 
-Only what the early boot path actually reads (see NOTES.md); every MMIO
-address comes from the topaz (Redmi Note 12 4G, SM6225 khaje) live FDT. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem]
+Supports both:
+  - fuxi (Xiaomi 13, SM8550 "kalama") [DEFAULT]
+  - topaz (Redmi Note 12 4G, SM6225 "khaje") [reference]
+
+Usage:
+  mkadt.py [OUT.adt] [--machine {fuxi,topaz}] [--dump] [--qemu] [--highmem] [--native]
 """
-import hashlib, os, struct, sys
+import argparse, hashlib, os, struct, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adt  # noqa: E402
 
-# Kernel-managed RAM: above every Qualcomm XPU carve-out (see NOTES.md)
-PHYS_BASE = 0xb0000000
-MEM_SIZE = 0x4d000000
-# --highmem (phone only): the whole upper DDR bank. The topaz live FDT memory
-# node is <0x40000000 0x3bb00000>, <0x80000000 3G>, <0x1_40000000 4G>; every
-# fixed reserved-memory carve-out is below 0x63900000 and the dynamic pools are
-# limited below 4G.
-HIGH_PHYS_BASE = 0x140000000
-HIGH_MEM_SIZE = 0x100000000
-# /arm-io children are relative to this; it must not be 0 (serial_init bails)
-SOC_BASE = 0x01000000
-
-# interrupt-controller@f200000 (redistributor-stride 0x20000, 8 cores)
-GICD, GICD_SIZE = 0x0f200000, 0x10000
-GICR, GICR_SIZE = 0x0f300000, 0x100000
-# cont_splash_region left lit by ABL
-FB, FB_SIZE = 0x5c000000, 0xf00000
-SWEET_ECID = 0x544f50415a000001  # 'TOPAZ' + 1, synthetic
-FB_W, FB_H, FB_STRIDE = 1080, 2400, 1080 * 4
-# Internal UFS host (ufshc@4804000 "ufs_mem"); QEMU virt has none
-UFS, UFS_SIZE = 0x04804000, 0x3000
-TIMEBASE = 19200000
-VTIMER_INTID = 19
-# QEMU virt (-M virt,gic-version=3 -cpu cortex-a76): GICD/GICR and the generic timer's CNTFRQ
-QEMU_GICD, QEMU_GICR, QEMU_TIMEBASE = 0x08000000, 0x080a0000, 62500000
-QEMU_VTIMER_INTID = 27
-
-BOOT_MANIFEST_HASH = hashlib.sha384(b'topaz boot manifest').digest()
-
-# The iOS userland is the iPhone X (iPhone10,3 / D22AP) IPSW. MobileGestalt
-# derives product type, device class, home-button-less UI, artwork etc. from
-# the root identity and /product of the real D22AP device tree. That tree is
-# an Apple artifact (kept out of git): extract it from the IPSW with
-#   tools/remotezip.py URL DeviceTree.d22ap.im4p DIR
-#   ipsw img4 im4p extract DIR/Firmware/all_flash/DeviceTree.d22ap.im4p -o d22ap.adt
-D22AP_ADT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../research/ipsw-x/d22ap.adt')
-
-
-def d22ap_product(path=D22AP_ADT):
-    """/product properties of the real D22AP tree, without the syscfg
-    placeholders iBoot would fill in (flag bit set) and the node bookkeeping."""
-    if not os.path.exists(path):
-        print(f'warning: {path} missing, no /product node', file=sys.stderr)
-        return None
-    root, _ = adt.parse(open(path, 'rb').read())
-    for c in root.children:
-        if dict((k, v) for k, f, v in c.props).get('name') == b'product\0':
-            return [(k, v) for k, f, v in c.props if not f and k not in ('name', 'AAPL,phandle')]
-    raise SystemExit(f'{path}: no /product node')
-
+# ==============================================================================
+# Helper functions for ADT construction
+# ==============================================================================
 u32 = lambda *v: struct.pack('<%dI' % len(v), *v)
 u64 = lambda *v: struct.pack('<%dQ' % len(v), *v)
 cstr = lambda s: s.encode() + b'\0'
@@ -71,10 +28,162 @@ def node(name, props=(), children=()):
     return n
 
 
-def build(seed=None, qemu=False, highmem=False, native=False):
-    """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-sweet.py)."""
-    phys_base, mem_size = (HIGH_PHYS_BASE, HIGH_MEM_SIZE) if highmem else (PHYS_BASE, MEM_SIZE)
-    gicd, gicr, timebase = (QEMU_GICD, QEMU_GICR, QEMU_TIMEBASE) if qemu else (GICD, GICR, TIMEBASE)
+# The iOS userland is the iPhone X (iPhone10,3 / D22AP) IPSW. MobileGestalt
+# derives product type, device class, home-button-less UI, artwork etc. from
+# the root identity and /product of the real D22AP device tree.
+D22AP_ADT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../research/ipsw-x/d22ap.adt')
+
+
+def d22ap_product(path=D22AP_ADT):
+    """/product properties of the real D22AP tree, without the syscfg
+    placeholders iBoot would fill in (flag bit set) and the node bookkeeping."""
+    if not os.path.exists(path):
+        return None
+    try:
+        root, _ = adt.parse(open(path, 'rb').read())
+        for c in root.children:
+            if dict((k, v) for k, f, v in c.props).get('name') == b'product\0':
+                return [(k, v) for k, v in c.props if not f and k not in ('name', 'AAPL,phandle')]
+    except Exception as e:
+        print(f'warning: failed to parse {path}: {e}', file=sys.stderr)
+        return None
+    return None
+
+
+# ==============================================================================
+# QEMU virt constants (-M virt,gic-version=3 -cpu cortex-a76)
+# ==============================================================================
+QEMU_GICD = 0x08000000
+QEMU_GICR = 0x080a0000
+QEMU_TIMEBASE = 62500000
+QEMU_VTIMER_INTID = 27
+
+# ==============================================================================
+# Machine Configurations
+# ==============================================================================
+
+MACHINES = {
+    'topaz': {
+        'name': 'topaz',
+        'soc_name': 'khaje',
+        'compat_root': [
+            'D22AP', 'iPhone10,3', 'xiaomi,topaz', 'xiaomi,sweet', 'qcom,khaje', 'AppleARM'
+        ],
+        'phys_base': 0xb0000000,
+        'mem_size': 0x4d000000,
+        'high_phys_base': 0x140000000,
+        'high_mem_size': 0x100000000,
+        'soc_base': 0x01000000,
+        'gicd': 0x0f200000,
+        'gicd_size': 0x10000,
+        'gicr': 0x0f300000,
+        'gicr_size': 0x100000,
+        'gicr_stride': 0x20000,
+        'timer_base': 0,
+        'timer_size': 0,
+        'vtimer_intid': 19,
+        'ptimer_intid': 18,
+        'fb': 0x5c000000,
+        'fb_size': 0xf00000,
+        'fb_w': 1080,
+        'fb_h': 2400,
+        'fb_stride': 1080 * 4,
+        'ufs': 0x04804000,
+        'ufs_size': 0x3000,
+        'timebase': 19200000,
+        'ecid': 0x544f50415a000001,  # 'TOPAZ' + 1
+        'boot_manifest_hash': hashlib.sha384(b'topaz boot manifest').digest(),
+        'firmware_version': 'topaz-shim',
+        'nr_cpus': 4,
+        'cpu_reg': lambda i: 0x100 | i,
+        'cpu_compat': lambda i: cstr('qcom,kryo260') + cstr('qcom,kryo470') + cstr('ARM,v8'),
+        'cpu_freq': lambda i: 2803200000,
+        'has_ufs': True,
+    },
+    'fuxi': {
+        'name': 'fuxi',
+        'soc_name': 'kalama',
+        'compat_root': [
+            'D22AP', 'iPhone10,3', 'xiaomi,fuxi', 'xiaomi,sweet', 'qcom,kalama', 'qcom,sm8550', 'AppleARM'
+        ],
+        # Kernel-managed RAM: High DDR bank (SM8550_FACTS.md §8 lines 506-508, iomem.txt:289)
+        # 0x8_80000000 – 0x8_BB2FFFFF is 947 MiB of contiguous uncarved System RAM.
+        # [VERIFIED: iomem.txt line 289, SM8550_FACTS.md §8 line 506]
+        'phys_base': 0x880000000,
+        'mem_size': 0x3b000000,       # 944 MiB (fits inside 947 MiB 0x880000000-0x8bb2fffff)
+        # Highmem: 0x8c0000000 – 0x9ffffffff (5120 MiB System RAM; carve-outs start at 0x9ef990000)
+        # [VERIFIED: iomem.txt line 291, SM8550_FACTS.md §8 line 508]
+        'high_phys_base': 0x8c0000000,
+        'high_mem_size': 0xb0000000,  # 2816 MiB = 2.75 GiB (clear of 0x9ef990000 carve-out)
+        'soc_base': 0x01000000,       # /arm-io ranges base (must be non-zero for serial_init)
+        # GICD: Distributor @ 0x17100000, size 0x10000
+        # [VERIFIED: SM8550_FACTS.md §1 line 62, DT-kalama:803, ML-sm8550, PORT_FUXI.md §6 line 82]
+        'gicd': 0x17100000,
+        'gicd_size': 0x10000,
+        # GICR: Redistributors @ 0x17180000, size 0x200000 (8 cores * 0x40000 stride)
+        # [VERIFIED: SM8550_FACTS.md §1 line 63, DT-kalama:804, ML-sm8550, PORT_FUXI.md §6 line 82]
+        'gicr': 0x17180000,
+        'gicr_size': 0x200000,
+        'gicr_stride': 0x40000,
+        # GIC ITS: @ 0x17140000, size 0x40000
+        # [VERIFIED: SM8550_FACTS.md §1 line 64, DT-kalama:812, ML-sm8550]
+        'gic_its': 0x17140000,
+        'gic_its_size': 0x40000,
+        # Architected memory-mapped timer frame0 @ 0x17420000, size 0x1000
+        # [VERIFIED: SM8550_FACTS.md §3 line 200, iomem.txt:243, DT-kalama:984, PORT_FUXI.md §6 line 83]
+        'timer_base': 0x17420000,
+        'timer_size': 0x1000,
+        # Timer PPIs: standard ARM numbering (GIC_PPI 11 -> INTID 27, GIC_PPI 14 -> INTID 30)
+        # [VERIFIED: SM8550_FACTS.md §3 lines 203, 213, DT-kalama:861, PORT_FUXI.md §6 line 83]
+        'vtimer_intid': 27,
+        'ptimer_intid': 30,
+        # Continuous splash framebuffer @ 0xb8000000, size 0x2b00000 (43.0 MiB)
+        # [VERIFIED: SM8550_FACTS.md §6 line 386, reserved-memory.txt:33, iomem.txt:279, PORT_FUXI.md §6 line 78]
+        'fb': 0xb8000000,
+        'fb_size': 0x2b00000,
+        'fb_w': 1080,
+        'fb_h': 2400,
+        'fb_stride': 1080 * 4,        # 4320 bytes [INFERRED: standard 1080x4bpp, SM8550_FACTS.md §6 line 407]
+        # Internal UFS host controller @ 0x01d84000, size 0x3000 ("ufshc@1d84000")
+        # [VERIFIED: SM8550_FACTS.md §2 line 113, iomem.txt:10, DT-kalama:1932, PORT_FUXI.md §6 line 81]
+        'ufs': 0x01d84000,
+        'ufs_size': 0x3000,
+        'timebase': 19200000,         # 19.2 MHz [VERIFIED: SM8550_FACTS.md §3 line 202]
+        'ecid': 0x4655584900000001,   # 'FUXI' + 1 (synthetic ECID)
+        'boot_manifest_hash': hashlib.sha384(b'fuxi boot manifest').digest(),
+        'firmware_version': 'fuxi-shim',
+        # 8 cores: 1x Cortex-X3 + 2x Cortex-A715 + 2x Cortex-A710 + 3x Cortex-A510
+        # MPIDR: reg = core << 8 (0x000, 0x100, ..., 0x700)
+        # [VERIFIED: SM8550_FACTS.md §4 line 234, dt-cpus.txt, DT-kalama:67, PORT_FUXI.md §6 line 85, D2 line 170]
+        'nr_cpus': 8,
+        'cpu_reg': lambda i: i << 8,
+        'cpu_compat': lambda i: (
+            cstr('arm,cortex-a510') if i in (0, 1, 2) else
+            cstr('arm,cortex-a715') if i in (3, 4) else
+            cstr('arm,cortex-a710') if i in (5, 6) else
+            cstr('arm,cortex-x3')
+        ) + cstr('qcom,kalama') + cstr('qcom,kryo470') + cstr('ARM,v9') + cstr('ARM,v8'),
+        'cpu_freq': lambda i: (
+            2000000000 if i in (0, 1, 2) else
+            2800000000 if i in (3, 4, 5, 6) else
+            3187200000
+        ),
+        'has_ufs': True,
+    }
+}
+
+
+def build(machine='fuxi', seed=None, qemu=False, highmem=False, native=False):
+    """Build the minimal Apple Device Tree for machine ('fuxi' or 'topaz')."""
+    mach = MACHINES[machine]
+    phys_base, mem_size = (mach['high_phys_base'], mach['high_mem_size']) if highmem else (mach['phys_base'], mach['mem_size'])
+    gicd, gicr = (QEMU_GICD, QEMU_GICR) if qemu else (mach['gicd'], mach['gicr'])
+    gicd_size, gicr_size = mach['gicd_size'], mach['gicr_size']
+    timebase = QEMU_TIMEBASE if qemu else mach['timebase']
+    vtimer_intid = QEMU_VTIMER_INTID if qemu else mach['vtimer_intid']
+    ptimer_intid = mach['ptimer_intid']
+    soc_base = mach['soc_base']
+
     seed = seed if seed is not None else os.urandom(64)
     phandle = iter(range(1, 1000))
     ph = lambda: ('AAPL,phandle', u32(next(phandle)))
@@ -85,12 +194,12 @@ def build(seed=None, qemu=False, highmem=False, native=False):
         ('dram-size', u64(mem_size)),
         ('random-seed', seed),
         ('debug-enabled', u32(1)),
-        ('firmware-version', cstr('topaz-shim')),
-        ('system-firmware-version', cstr('topaz-shim')),
+        ('firmware-version', cstr(mach['firmware_version'])),
+        ('system-firmware-version', cstr(mach['firmware_version'])),
         # iBoot's SHA-384 of the boot manifest; /sbin/mount -P 1 exits unless
         # it exists (bind mounts /private/preboot/<hex>/usr/standalone/firmware,
         # tolerating a missing directory). Fixed stand-in value.
-        ('boot-manifest-hash', BOOT_MANIFEST_HASH),
+        ('boot-manifest-hash', mach['boot_manifest_hash']),
         # libimg4 (cryptexd) aborts "failed to get crypto algorithm" without
         # it; real A11+ device trees say sha2-384.
         ('crypto-hash-method', cstr('sha2-384')),
@@ -104,7 +213,7 @@ def build(seed=None, qemu=False, highmem=False, native=False):
         # files), so e.g. DataMigration never records LastSystemVersion and
         # migrates on every boot. Synthetic ECID (not the phone's); chip-id
         # of the A11 that the iPhone X userland expects.
-        ('unique-chip-id', struct.pack('<Q', SWEET_ECID)),
+        ('unique-chip-id', struct.pack('<Q', mach['ecid'])),
         ('chip-id', u32(0x8015)),
         # Security status as on a dev-fused, undemoted board (tuple 0,0,1,1):
         # MobileGestalt reads these from /chosen, and mobileactivationd's
@@ -122,28 +231,29 @@ def build(seed=None, qemu=False, highmem=False, native=False):
         # with CSR_ALLOW_UNRESTRICTED_FS (vm_unix.c shared region checks).
         node('asmb', [ph(), ('lp-sip0', u64(0x6f)), ('lp-sip1', u32(1))])])
 
-    # TOPAZ SMP: only the four Cortex-A73 (gold) cores, MPIDR 0x100-0x103:
-    # the Kryo 260 Silver cores have no 16K granule, so the shim boots xnu
-    # on gold CPU 0x100 and parks the silver cluster. One cluster. The kernel defaults to one
-    # and uses cpus=N to select an initial prefix (N <= 8).
-    # QEMU retains its original single-CPU tree: its MPIDRs differ from sweet.
+    # CPUs
+    nr_cpus = 1 if qemu else mach['nr_cpus']
     cpu_nodes = []
-    for core in range(1 if qemu else 4):
+    for core in range(nr_cpus):
+        mpidr = core if qemu else mach['cpu_reg'](core)
+        # In fuxi, each core has its own Aff1 cluster ID: MPIDR_CLUSTER_ID = core (0..7).
+        # In topaz, all 4 Gold cores share cluster 0.
+        cluster_id = core if (mach['name'] == 'fuxi' and not qemu) else 0
         cpu_nodes.append(node(f'cpu{core}', [
             ph(),
             ('device_type', cstr('cpu')),
-            ('compatible', cstr('qcom,kryo260') + cstr('qcom,kryo470') + cstr('ARM,v8')),
-            ('reg', u32(core if qemu else 0x100 | core)),  # actual MPIDR Aff1:Aff0, NOT logical ID
+            ('compatible', mach['cpu_compat'](core)),
+            ('reg', u32(mpidr)),  # actual MPIDR Aff1:Aff0, NOT logical ID
             ('cpu-id', u32(core)),   # descriptive: XNU assigns IDs by DT order
-            ('cluster-id', u32(0)),  # descriptive; see ml_parse_cpu_topology
+            ('cluster-id', u32(cluster_id)),
             ('cluster-type', u32(0)),  # homogeneous CLUSTER_TYPE_SMP, not AMP
-            ('die-cluster-id', u32(0)),
-            ('cluster-core-id', u32(core)),
-            ('l2-cache-id', u32(0)),  # gold L2
+            ('die-cluster-id', u32(cluster_id)),
+            ('cluster-core-id', u32(0 if mach['name'] == 'fuxi' else core)),
+            ('l2-cache-id', u32(cluster_id)),
             ('l3-cache-id', u32(0)),
             ('state', cstr('running' if core == 0 else 'stopped')),
             ('timebase-frequency', u32(timebase)),
-            ('clock-frequency', u32(2803200000)),
+            ('clock-frequency', u32(mach['cpu_freq'](core))),
             ('bus-frequency', u32(100000000)),
             ('memory-frequency', u32(1866000000)),
             ('peripheral-frequency', u32(timebase)),
@@ -152,21 +262,27 @@ def build(seed=None, qemu=False, highmem=False, native=False):
     cpus = node('cpus', [ph(), ('#address-cells', u32(1)),
                          ('#size-cells', u32(0))], cpu_nodes)
 
-    gic = node('gic', [
+    # GIC
+    gic_props = [
         ph(),
         ('compatible', cstr('arm,gic-v3')),
         ('interrupt-controller', b''),
-        ('virtual-timer-intid', u32(QEMU_VTIMER_INTID if qemu else VTIMER_INTID)),
-        ('reg', u64(gicd - SOC_BASE, GICD_SIZE, gicr - SOC_BASE, GICR_SIZE)),
-    ])
-    arm_io = node('arm-io', [
-        ph(),
-        ('device_type', cstr('sweet-io')),
-        ('compatible', cstr('sweet-io') + cstr('arm-io')),
-        ('#address-cells', u32(2)),
-        ('#size-cells', u32(2)),
-        ('ranges', u64(0, SOC_BASE, 0x100000000 - SOC_BASE)),
-    ], [gic,
+        ('virtual-timer-intid', u32(vtimer_intid)),
+        ('physical-timer-intid', u32(ptimer_intid)),
+        ('redistributor-stride', u32(mach['gicr_stride'])),
+        ('stride', u32(mach['gicr_stride'])),
+        ('distributor-base', u64(gicd)),
+        ('redistributor-base', u64(gicr)),
+        ('reg', u64(gicd - soc_base, gicd_size, gicr - soc_base, gicr_size)),
+    ]
+    if mach.get('timer_base'):
+        gic_props.append(('timer-base', u64(mach['timer_base'])))
+    if mach.get('gic_its'):
+        gic_props.append(('its-base', u64(mach['gic_its'])))
+    gic = node('gic', gic_props)
+
+    arm_io_children = [
+        gic,
         # No hardware: watchdogd checks IODeviceTree:/arm-io/wdt for no-pmu and
         # otherwise crashes trying to set the PMU boot stage (customer builds
         # ignore the -wdt_no_pmu boot-arg).
@@ -184,22 +300,57 @@ def build(seed=None, qemu=False, highmem=False, native=False):
             # backboardd ask for a hardware scaler that does not exist)
             ('canvas-width', u32(1080 if native else 1125)),
             ('canvas-height', u32(2400 if native else 2436)),
-        ])])
+        ]),
+    ]
+
+    # Timer frame node (SM8550 arch_mem_timer @ 0x17420000)
+    if mach.get('timer_base') and not qemu:
+        timer = node('timer', [
+            ph(),
+            ('compatible', cstr('arm,armv8-timer-mem') + cstr('qcom,arch-mem-timer')),
+            ('reg', u64(mach['timer_base'] - soc_base, mach['timer_size'])),
+            ('phys-addr', u64(mach['timer_base'])),
+            ('virtual-timer-intid', u32(vtimer_intid)),
+            ('physical-timer-intid', u32(ptimer_intid)),
+            ('clock-frequency', u32(timebase)),
+        ])
+        arm_io_children.append(timer)
+
+    arm_io = node('arm-io', [
+        ph(),
+        ('device_type', cstr('sweet-io')),
+        ('compatible', cstr('sweet-io') + cstr('arm-io')),
+        ('#address-cells', u32(2)),
+        ('#size-cells', u32(2)),
+        ('ranges', u64(0, soc_base, 0x100000000 - soc_base)),
+    ], arm_io_children)
 
     fbcon = node('sweet-fbcon', [
         ph(),
-        ('reg', u64(FB, FB_SIZE)),
-        ('width', u32(FB_W)),
-        ('height', u32(FB_H)),
-        ('stride', u32(FB_STRIDE)),
+        ('reg', u64(mach['fb'], mach['fb_size'])),
+        ('width', u32(mach['fb_w'])),
+        ('height', u32(mach['fb_h'])),
+        ('stride', u32(mach['fb_stride'])),
     ])
 
     # bsd/dev/sweet_ufs.c: the UFS host ABL leaves running (absolute physical reg).
     ufs = node('sweet-ufs', [
         ph(),
         ('compatible', cstr('qcom,ufshc')),
-        ('reg', u64(UFS, UFS_SIZE)),
+        ('reg', u64(mach['ufs'], mach['ufs_size'])),
     ])
+
+    # Direct sweet-timer root node for hardware timer frame reference
+    sweet_timer_nodes = []
+    if mach.get('timer_base') and not qemu:
+        sweet_timer_nodes.append(node('sweet-timer', [
+            ph(),
+            ('compatible', cstr('qcom,arch-mem-timer')),
+            ('reg', u64(mach['timer_base'], mach['timer_size'])),
+            ('virtual-timer-intid', u32(vtimer_intid)),
+            ('physical-timer-intid', u32(ptimer_intid)),
+            ('stride', u32(mach['gicr_stride'])),
+        ]))
 
     # pmap_compute_max_asids requires the node even when no overrides are set.
     # An absent pmap-max-asids property selects XNU's own MAX_ASIDS default.
@@ -219,27 +370,56 @@ def build(seed=None, qemu=False, highmem=False, native=False):
     product_props = d22ap_product()
     product = [node('product', [ph()] + product_props)] if product_props else []
 
+    compat_root_str = b''.join(cstr(c) for c in mach['compat_root'])
+
+    root_children = [chosen, defaults, cpus, arm_io, fbcon, buttons] + product + sweet_timer_nodes
+    if not qemu and mach['has_ufs']:
+        root_children.append(ufs)
+
     # Identity of the iPhone X whose userland runs here: compatible[0] is
     # hw.model/hw.target (D22AP), model is hw.machine/hw.product
     # (iPhone10,3). 'xiaomi,sweet' and qcom,kryo470 stay because the
     # SweetPlatformExpert and CPU IONameMatch still use them.
     return node('device-tree', [
         ph(),
-        ('compatible', cstr('D22AP') + cstr('iPhone10,3') + cstr('xiaomi,topaz') + cstr('xiaomi,sweet') + cstr('qcom,khaje') + cstr('AppleARM')),
+        ('compatible', compat_root_str),
         ('model', cstr('iPhone10,3')),
         ('target-type', cstr('D22')),
         ('target-sub-type', cstr('D22AP')),
         ('manufacturer', cstr('Apple Inc.')),
         ('#address-cells', u32(2)),
         ('#size-cells', u32(2)),
-    ], [chosen, defaults, cpus, arm_io, fbcon, buttons] + product + ([] if qemu else [ufs]))
+    ], root_children)
 
 
 if __name__ == '__main__':
-    root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv,
-                 native='--native' in sys.argv)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('out', nargs='?', default=None, help='Output ADT file path (default: stdout dump or xnu/out/fuxi.adt)')
+    ap.add_argument('--machine', choices=['fuxi', 'topaz'], default=None,
+                    help='Machine target (default: fuxi, or topaz if "topaz" in out path)')
+    ap.add_argument('--dump', action='store_true', help='Dump parsed tree to stdout')
+    ap.add_argument('--qemu', action='store_true', help='Build for QEMU virt')
+    ap.add_argument('--highmem', action='store_true', help='Use high DDR bank')
+    ap.add_argument('--native', action='store_true', help='Present native 1080x2400 panel resolution')
+    a = ap.parse_args()
+
+    # Determine machine
+    machine = a.machine
+    if not machine:
+        if a.out and 'topaz' in a.out.lower():
+            machine = 'topaz'
+        else:
+            machine = 'fuxi'
+
+    root = build(machine=machine, qemu=a.qemu, highmem=a.highmem, native=a.native)
     blob = adt.serialize(root)
-    open(sys.argv[1], 'wb').write(blob)
-    if '--dump' in sys.argv:
-        adt.dump(adt.parse(blob)[0])
-    print(f'{sys.argv[1]}: {len(blob)} bytes', file=sys.stderr)
+
+    if a.out:
+        os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+        with open(a.out, 'wb') as f:
+            f.write(blob)
+        print(f'{a.out}: {len(blob)} bytes ({machine})', file=sys.stderr)
+
+    if a.dump or not a.out:
+        parsed_root, _ = adt.parse(blob)
+        adt.dump(parsed_root)

@@ -12,14 +12,14 @@
 #include "loader.h"
 #include "ufs.h"
 
-#define IMEM_RESTART_REASON	0x0c12565cUL	/* qcom,msm-imem@c125000 restart_reason@65c */
+#define IMEM_RESTART_REASON	0x146aa65cUL	/* fuxi imem@146aa000 + 0x65c (topaz: 0xc12565c) */
 #define RESTART_BOOTLOADER	0x77665500U
-#define PSHOLD			0x0440b000UL
+/* SM8550 has no MMIO PS_HOLD (topaz wrote 0x440b000); power hold = PMK8550 PON over SPMI. */
 
-#define GICD_BASE		0x0f200000UL
-#define GICR_BASE		0x0f300000UL
-#define GICR_SIZE		0x100000UL
-#define GICR_PE_SIZE		0x20000UL
+#define GICD_BASE		0x17100000UL	/* fuxi DT interrupt-controller@17100000 */
+#define GICR_BASE		0x17180000UL	/* fuxi DT: GICR +0x80000, size 0x200000 */
+#define GICR_SIZE		0x200000UL
+#define GICR_PE_SIZE		0x40000UL	/* fuxi: 8 redistributors, stride 0x40000 */
 #define GICR_TYPER		0x08
 #define GICR_WAKER		0x14
 #define GICR_SGI		0x10000
@@ -30,8 +30,8 @@
 #define GICR_ISPENDR0		(GICR_SGI + 0x200)
 #define GICR_ISACTIVER0		(GICR_SGI + 0x300)
 #define GICR_ICFGR1		(GICR_SGI + 0xc04)
-#define VTIMER_INTID		19	/* DT: <GIC_PPI 3 ...>, not the usual 27 */
-#define PTIMER_INTID		18	/* DT: <GIC_PPI 2 ...> */
+#define VTIMER_INTID		27	/* fuxi vendor DT GIC_PPI 13 -> 27 (topaz: 19) */
+#define PTIMER_INTID		30	/* fuxi vendor DT GIC_PPI 14 -> 30 (topaz: 18) */
 #define SGI_INTID		1
 
 #define PSCI_VERSION		0x84000000UL
@@ -47,6 +47,30 @@
 
 #define NR_CPUS			8
 
+/*
+ * M1 (fuxi): diagnostics-only bring-up. Print what the port needs to know and
+ * park. Everything risky is skipped on purpose: no GIC writes, no PSCI CPU_ON,
+ * no UFS probe, no restart-reason write, no MMU. The only memory touched is our
+ * own image, the DTB that ABL passed, and the splash framebuffer (reserved RAM).
+ */
+#ifndef FUXI_M1_DIAG
+#define FUXI_M1_DIAG		1
+#endif
+
+/* Timing telemetry: with FUXI_REPORT=x the shim holds for 2 s + x seconds before
+ * resetting. The host measures the time until the device reappears and decodes x,
+ * so shim results can be read with no display and no serial. FUXI_FAST skips the
+ * framebuffer draw entirely (with the MMU off a screenful of glyphs costs ~31 s). */
+#ifndef FUXI_REPORT
+#define FUXI_REPORT		0
+#endif
+/* What to encode in the reset delay: 0 = baseline (2 s), 1 = boot-core MPIDR Aff1,
+ * 2 = ID_AA64MMFR0.TGran16, 3 = GICD_TYPER SPI count (bits 15:11). The host reads
+ * the value as (measured reappearance - baseline reappearance). */
+#ifndef FUXI_TELEM
+#define FUXI_TELEM		0
+#endif
+
 #define rsr(r) ({ uint64_t _v; __asm__ volatile("mrs %0, " r : "=r"(_v)); _v; })
 #define wsr(r, v) __asm__ volatile("msr " r ", %0" : : "r"((uint64_t)(v)))
 #define isb() __asm__ volatile("isb" ::: "memory")
@@ -59,8 +83,8 @@ static inline void wr8(uintptr_t a, uint8_t v) { *(volatile uint8_t *)a = v; }
 extern char secondary_entry[];
 
 static const char *stage;	/* set at runtime: no absolute pointers in data */
-/* topaz: CPU0-3 (A53) at MPIDR 0x0-0x3, CPU4-7 (A73) at 0x100-0x103 */
-static inline uint64_t cpu_mpidr(int i) { return (uint64_t)(i >> 2) << 8 | (i & 3); }
+/* fuxi: one core per Aff1 slice -> cpu@0,100..700 (MPIDR 0x000..0x700); topaz packed 4/cluster. */
+static inline uint64_t cpu_mpidr(int i) { return (uint64_t)i << 8; }
 
 static volatile uint64_t sec_mpidr[NR_CPUS];
 static volatile uint64_t sec_probe[4];	/* CPU1 redistributor write test */
@@ -112,7 +136,6 @@ static void __attribute__((noreturn)) reset(unsigned after_s)
 	wr32(IMEM_RESTART_REASON, RESTART_BOOTLOADER);
 	__asm__ volatile("dsb sy" ::: "memory");
 	smc(PSCI_SYSTEM_RESET, 0, 0, 0);
-	wr32(PSHOLD, 0);
 	for (;;)
 		__asm__ volatile("wfe");
 }
@@ -484,10 +507,51 @@ void shim_main(uint64_t dtb)
 	stage = "loader";
 	con_clear(RED);
 	con_str("SHIM", "sweet milestone 4: xnu loader");
-	/* topaz: xnu needs the 16K granule (TGran16 != 0); Cortex-A53 may lack it */
+	/* topaz workaround (its Silver A53 lacks the 16K granule); every fuxi core has it, so this never fires here */
 	uint64_t mmfr0 = rsr("id_aa64mmfr0_el1");
 	con_hex2("MMFR0", "lo=", (uint32_t)mmfr0, "tg16=", (mmfr0 >> 20) & 0xf);
 	con_hex2("MIDR", "el1=", (uint32_t)rsr("midr_el1"), "mpidr=", (uint32_t)rsr("mpidr_el1"));
+#if FUXI_M1_DIAG
+	{
+		uintptr_t gicr = find_gicr();
+		con_hex2("CTR", "el0=", (uint32_t)rsr("ctr_el0"), "dczid=", (uint32_t)rsr("dczid_el0"));
+		con_hex("CNTFRQ", rsr("cntfrq_el0"));
+		con_hex2("PSCI", "ver=", smc(PSCI_VERSION, 0, 0, 0), "smccc=", smc(SMCCC_VERSION, 0, 0, 0));
+		con_hex2("DTB", "at=", dtb, "magic=", dtb ? __builtin_bswap32(rd32(dtb)) : 0);
+		/* read-only MMIO peeks: GIC distributor + our own redistributor */
+		con_hex2("GICD", "typer=", rd32(GICD_BASE + 0x004), "pidr2=", rd32(GICD_BASE + 0xfe8));
+		con_hex2("GICR", "base=", gicr, "typer=", gicr ? (uint32_t)rd64(gicr + GICR_TYPER) : 0);
+		con_hex2("SAR", "el1=", (uint32_t)rsr("spsr_el1"), "cntfrq=", (uint32_t)rsr("cntfrq_el0"));
+		con_skip();
+		con_str("FUXI", "M1 done: restart in 25 s (that reset IS the signal)");
+		/* Telemetry: if the panel never shows this text, the reboot after 25 s
+		 * still proves our image ran. PSCI reset only: no IMEM/PS_HOLD writes. */
+		{
+			uint32_t telem = FUXI_REPORT;
+#if FUXI_TELEM == 1
+			telem = (rsr("mpidr_el1") >> 8) & 0xff;
+#elif FUXI_TELEM == 2
+			telem = (rsr("id_aa64mmfr0_el1") >> 20) & 0xf;
+#elif FUXI_TELEM == 3
+			telem = (rd32(GICD_BASE + 0x004) >> 11) & 0x1f;
+#elif FUXI_TELEM == 4
+			/* GIC reachability bitmask: did each read return something plausible? */
+			telem = (rd32(GICD_BASE + 0x004) != 0)
+			      | ((rd32(GICD_BASE + 0xfe8) != 0) << 1)
+			      | (((uint32_t)rd64(GICR_BASE + GICR_TYPER) != 0) << 2)
+			      | ((((uint32_t)rd64(GICR_BASE + GICR_TYPER) & 0xff) != 0) << 3);
+#elif FUXI_TELEM == 5
+			telem = (uint32_t)rd64(GICR_BASE + GICR_TYPER) & 0xf;
+#endif
+			if (rsr("cntfrq_el0"))
+				delay_ms(2000 + 5000 * telem);
+		}	// TEST3: 2 min hold so ~jkoo can watch the screen
+		smc(PSCI_SYSTEM_RESET, 0, 0, 0);
+		con_str("FUXI", "system_reset returned: parked");
+		for (;;)
+			__asm__ volatile("wfe");
+	}
+#endif
 	if (((mmfr0 >> 20) & 0xf) == 0) {
 		con_str("SILVER", "no 16K granule: handing off to gold CPU 0x100");
 		con_skip();
