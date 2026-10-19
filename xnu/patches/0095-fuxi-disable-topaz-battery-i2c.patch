@@ -1,0 +1,28 @@
+--- a/bsd/dev/sweet_i2c1.c
++++ b/bsd/dev/sweet_i2c1.c
+@@ -183,8 +183,25 @@
+ 	if (!i2c1_gcc || !i2c1_west || !i2c1_se) {
+ 		return ENOMEM;
+ 	}
++#ifdef ARM64_BOARD_CONFIG_FUXI
++	/*
++	 * fuxi: I2C1_GCC_VOTE (0x7900c off GCC 0x01400000 = phys 0x001b900c) is a
++	 * topaz (SM6225) register offset.  On SM8550 that address is absent, so the
++	 * read aborts on the bus -- a synchronous external abort (ESR 0x96000010,
++	 * DFSC 0x10) that panics before the console is up:
++	 *
++	 *   panic: Kernel data abort. at pc ...74ed41c <sweet_i2c1_init+0x9c>
++	 *   ldr w9, [x8, x22]   ; x8 = ml_io_map(0x01400000, 0x80000), x22 = 0x7900c
++	 *
++	 * The fuxi battery/charger bus is a separate job (SM8550 PMIC with its own
++	 * gauge), so report the gauge unavailable rather than fault at boot.
++	 * TODO fuxi: retarget the QUP/GCC bases and offsets in this file.
++	 */
++	return ENODEV;
++#else
+ 	/* OR our votes in: other bits of the shared register belong to others */
+ 	wr(i2c1_gcc, I2C1_GCC_VOTE, rd(i2c1_gcc, I2C1_GCC_VOTE) | 0xbc0u);
++#endif
+ 	if (!wait_clear(i2c1_gcc, I2C1_CBCR, 1u << 31)) {
+ 		printf("SWEET I2C1: SE1 clock off (cbcr %#x)\n", rd(i2c1_gcc, I2C1_CBCR));
+ 		return EIO;
