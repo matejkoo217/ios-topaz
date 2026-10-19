@@ -1,0 +1,83 @@
+fuxi: 0112 -- restart and the cluster clocks on the ethertype channel
+
+The UDP channel (0110/0111) is deaf on hardware: the host's datagram never shows
+up as "FUXI CMD: rx" in the console stream, while the ethertype channel from 0106
+answers immediately -- "usb: ue0 up, rx 188 tx 368 frames, 657 events".  A kernel
+socket bound to INADDR_ANY on a link that comes up before its address exists is
+evidently not receiving here, and that is a rabbit hole; the frame path is proven,
+and --jkoo has root, so AF_PACKET costs nothing.  The UDP listener stays in the
+tree (it is harmless and the reply peer is now correct) but the loop runs on
+ethertype from here.
+
+Two commands move over:
+
+  restart  answers, waits a tick so the frame leaves, then PEHaltRestart: the
+           phone resets out of the kernel without anyone touching it.
+  cpu      in addition to the PMCCNTR answer, calls the EPSS report, so the
+           per-cluster perf state and clock land in the console stream on 5140 --
+           readable live, no photo, no reboot.
+
+That combination is what makes the loop self-driving: boot over fastboot, watch
+5140, restart over 0x88B5, and the phone is back at the bootloader-visible state
+in one command.
+
+Harness: applied=111 skipped=0.
+--- a/bsd/dev/fuxi_sample.c
++++ b/bsd/dev/fuxi_sample.c
+@@ -28,6 +28,7 @@
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ 
+ uint32_t fuxi_cpu_khz(void);      /* used by the USB command channel too */
++void fuxi_cpu_epss_report(const char *tag);
+ #include <vm/pmap.h>
+ #include <vm/vm_kern.h>
+ 
+@@ -142,7 +143,7 @@
+ 	return src ? FUXI_XO_KHZ * (v & 0xff) : 0;
+ }
+ 
+-static void
++void
+ fuxi_cpu_epss_report(const char *tag)
+ {
+ 	for (int d = 0; d < FUXI_EPSS_DOMAINS; d++) {
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -399,6 +399,7 @@
+ 
+ static errno_t ud_if_output(ifnet_t ifp, mbuf_t m);
+ extern uint32_t fuxi_cpu_khz(void);                     /* fuxi_sample.c */
++extern void fuxi_cpu_epss_report(const char *tag);      /* fuxi_sample.c */
+ extern unsigned int ml_get_cpu_number_local(void);      /* osfmk/arm */
+ 
+ static void
+@@ -440,15 +441,28 @@
+ 	if (len == 0) {
+ 		return;
+ 	}
++	if (len == 7 && strncmp(line, "restart", 7) == 0) {
++		/*
++		 * Same escape hatch as the UDP channel, on the path that is actually
++		 * proven on hardware: --jkoo has root, so AF_PACKET is available and
++		 * this needs no kernel socket.
++		 */
++		ud_cmd_send("restart: resetting\n", 20);
++		ud_sleep_ms(50);                /* let the frame leave first */
++		PEHaltRestart(FUXI_PE_RESTART_CPU);
++		return;
++	}
+ 	if (len == 4 && strncmp(line, "help", 4) == 0) {
+ 		n = snprintf(reply, sizeof(reply),
+-		    "fuxi: stat | cpu | echo <text> | help  (console: udp 5140)\n");
++		    "fuxi: stat | cpu | echo <text> | restart | help  (console: udp 5140)\n");
+ 	} else if (len == 4 && strncmp(line, "stat", 4) == 0) {
+ 		n = snprintf(reply, sizeof(reply),
+ 		    "usb: ue0 %s, rx %llu tx %llu frames, %llu events\n",
+ 		    ud.configured ? "up" : "down", ud.rx_frames, ud.tx_frames, ud.events);
+ 	} else if (len == 3 && strncmp(line, "cpu", 3) == 0) {
+ 		uint32_t khz = fuxi_cpu_khz();
++		/* Cluster clocks go to the console stream (readable on 5140). */
++		fuxi_cpu_epss_report("cmd");
+ 		if (khz) {
+ 			n = snprintf(reply, sizeof(reply), "cpu: cpu%u %u.%03u MHz\n",
+ 			    ml_get_cpu_number_local(), khz / 1000, khz % 1000);
