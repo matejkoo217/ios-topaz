@@ -130,7 +130,7 @@ diff --git a/config/MASTER.arm64.fuxi b/config/MASTER.arm64.fuxi
 +# fuxi (Xiaomi 13, SM8550 "kalama"): MASTER.arm64.MacOSX plus the feature
  # set is deliberately identical - every config_* option below is either
  # SoC-independent bring-up (nos_arm_asm, nos_arm_pmap, the kperf/kpc stub) or a
- # userland/filesystem need of the iOS 16 root (mockfs, sweet_hfs, bindfs,
+ # userland/filesystem need of the iOS 16 root (mockfs, fuxi_hfs, bindfs,
 diff --git a/pexpert/pexpert/arm64/SWEET.h b/pexpert/pexpert/arm64/SWEET.h
 deleted file mode 100644
 --- a/pexpert/pexpert/arm64/SWEET.h
@@ -258,7 +258,7 @@ deleted file mode 100644
 -#  BSD_RELEASE =    [ BSD_BASE ]
 -#  BSD_DEV =        [ BSD_BASE config_vnguard ]
 -#  BSD_DEBUG =      [ BSD_BASE config_vnguard ]
--#  FILESYS_BASE =   [ devfs fdesc fifo mockfs sweet_hfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_searchfs config_volfs config_appledouble nullfs bindfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
+-#  FILESYS_BASE =   [ devfs fdesc fifo mockfs fuxi_hfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_searchfs config_volfs config_appledouble nullfs bindfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
 -#  FILESYS_RELEASE= [ FILESYS_BASE ]
 -#  FILESYS_DEV =    [ FILESYS_BASE config_iocount_trace ]
 -#  FILESYS_DEBUG =  [ FILESYS_BASE config_iocount_trace ]

@@ -19,8 +19,8 @@
  
  		if (vfsp->vfc_mountroot) {
  			error = (*vfsp->vfc_mountroot)(mp, rootvp, ctx);
---- a/bsd/sweet_hfs/core/hfs_vfsutils.c
-+++ b/bsd/sweet_hfs/core/hfs_vfsutils.c
+--- a/bsd/fuxi_hfs/core/hfs_vfsutils.c
++++ b/bsd/fuxi_hfs/core/hfs_vfsutils.c
 @@ -202,10 +202,22 @@
  	/* don't mount a writable volume if its dirty, it must be cleaned by fsck_hfs */
  	if ((hfsmp->hfs_flags & HFS_READ_ONLY) == 0 && hfsmp->jnl == NULL &&

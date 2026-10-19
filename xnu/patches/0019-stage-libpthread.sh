@@ -27,7 +27,7 @@ import shutil
 import sys
 
 source = Path(sys.argv[1])
-target = Path('bsd/pthread/sweet_libpthread')
+target = Path('bsd/pthread/fuxi_libpthread')
 if target.exists():
     raise SystemExit(f'refusing to overwrite existing provider: {target}')
 # Preserve upstream copyright/license headers; no downloaded sources in git.
@@ -62,5 +62,5 @@ PY
 # Kernel builds use -nostdinc. Carry the real SDK target definitions beside
 # the provider so local compiles from the uploaded build tree work as well.
 pthread_sdk=$(xcrun --sdk macosx --show-sdk-path)
-cp "$pthread_sdk/usr/include/TargetConditionals.h" bsd/pthread/sweet_libpthread/
+cp "$pthread_sdk/usr/include/TargetConditionals.h" bsd/pthread/fuxi_libpthread/
 echo "Staged libpthread-514.100.2 ($pthread_sha) for SWEET"

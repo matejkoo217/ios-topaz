@@ -5,7 +5,7 @@ diff --git a/config/MASTER b/config/MASTER
  #	4.4 filesystems
  #
  options		MOCKFS		# Boot from an executable	# <mockfs>
-+options		SWEET_HFS	# Built-in Apple OSS HFS (SWEET)	# <sweet_hfs>
++options		FUXI_HFS	# Built-in Apple OSS HFS (SWEET)	# <fuxi_hfs>
  options		FIFO		# fifo support			# <fifo>
  options		FDESC		# fdesc_fs support		# <fdesc>
  options		DEVFS		# devfs support			# <devfs>
@@ -17,7 +17,7 @@ diff --git a/config/MASTER.arm64.sweet b/config/MASTER.arm64.sweet
  #  BSD_DEV =        [ BSD_BASE config_vnguard ]
  #  BSD_DEBUG =      [ BSD_BASE config_vnguard ]
 -#  FILESYS_BASE =   [ devfs fdesc fifo mockfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_ext_resolver config_searchfs config_volfs config_appledouble nullfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
-+#  FILESYS_BASE =   [ devfs fdesc fifo mockfs sweet_hfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_ext_resolver config_searchfs config_volfs config_appledouble nullfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
++#  FILESYS_BASE =   [ devfs fdesc fifo mockfs fuxi_hfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_ext_resolver config_searchfs config_volfs config_appledouble nullfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
  #  FILESYS_RELEASE= [ FILESYS_BASE ]
  #  FILESYS_DEV =    [ FILESYS_BASE config_iocount_trace ]
  #  FILESYS_DEBUG =  [ FILESYS_BASE config_iocount_trace ]
@@ -30,46 +30,46 @@ diff --git a/bsd/conf/files b/bsd/conf/files
  bsd/kern/fuxi_amfi.c			standard
 +
 +# Apple OSS hfs-627.100.6, staged by xnu/patches/0026-stage-hfs.sh
-+bsd/sweet_hfs/core/BTree.c		optional sweet_hfs
-+bsd/sweet_hfs/core/BTreeAllocate.c		optional sweet_hfs
-+bsd/sweet_hfs/core/BTreeMiscOps.c		optional sweet_hfs
-+bsd/sweet_hfs/core/BTreeNodeOps.c		optional sweet_hfs
-+bsd/sweet_hfs/core/BTreeNodeReserve.c		optional sweet_hfs
-+bsd/sweet_hfs/core/BTreeScanner.c		optional sweet_hfs
-+bsd/sweet_hfs/core/BTreeTreeOps.c		optional sweet_hfs
-+bsd/sweet_hfs/core/BTreeWrapper.c		optional sweet_hfs
-+bsd/sweet_hfs/core/CatalogUtilities.c		optional sweet_hfs
-+bsd/sweet_hfs/core/FileExtentMapping.c		optional sweet_hfs
-+bsd/sweet_hfs/core/FileIDsServices.c		optional sweet_hfs
-+bsd/sweet_hfs/core/MacOSStubs.c		optional sweet_hfs
-+bsd/sweet_hfs/core/UnicodeWrappers.c		optional sweet_hfs
-+bsd/sweet_hfs/core/VolumeAllocation.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_attrlist.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_btreeio.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_catalog.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_chash.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_cnode.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_cprotect.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_endian.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_extents.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_fsinfo.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_hotfiles.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_journal.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_link.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_lookup.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_notification.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_quota.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_readwrite.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_resize.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_search.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_vfsops.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_vfsutils.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_vnops.c		optional sweet_hfs
-+bsd/sweet_hfs/core/hfs_xattr.c		optional sweet_hfs
-+bsd/sweet_hfs/core/rangelist.c		optional sweet_hfs
-+bsd/sweet_hfs/hfs_encodings/hfs_encodinghint.c		optional sweet_hfs
-+bsd/sweet_hfs/hfs_encodings/hfs_encodings.c		optional sweet_hfs
-+bsd/sweet_hfs/sweet_hfs_iokit.c		optional sweet_hfs
++bsd/fuxi_hfs/core/BTree.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/BTreeAllocate.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/BTreeMiscOps.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/BTreeNodeOps.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/BTreeNodeReserve.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/BTreeScanner.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/BTreeTreeOps.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/BTreeWrapper.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/CatalogUtilities.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/FileExtentMapping.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/FileIDsServices.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/MacOSStubs.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/UnicodeWrappers.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/VolumeAllocation.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_attrlist.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_btreeio.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_catalog.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_chash.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_cnode.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_cprotect.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_endian.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_extents.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_fsinfo.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_hotfiles.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_journal.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_link.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_lookup.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_notification.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_quota.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_readwrite.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_resize.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_search.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_vfsops.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_vfsutils.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_vnops.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/hfs_xattr.c		optional fuxi_hfs
++bsd/fuxi_hfs/core/rangelist.c		optional fuxi_hfs
++bsd/fuxi_hfs/hfs_encodings/hfs_encodinghint.c		optional fuxi_hfs
++bsd/fuxi_hfs/hfs_encodings/hfs_encodings.c		optional fuxi_hfs
++bsd/fuxi_hfs/fuxi_hfs_iokit.c		optional fuxi_hfs
 +
  bsd/kern/kern_csr.c			optional config_csr
  bsd/kern/kern_debug.c			standard
@@ -78,15 +78,15 @@ diff --git a/bsd/conf/Makefile.template b/bsd/conf/Makefile.template
 --- a/bsd/conf/Makefile.template
 +++ b/bsd/conf/Makefile.template
 @@ -51,6 +51,15 @@
- fuxi_pthread_init.o_INCFLAGS = $(SWEET_PTHREAD_INC)
- fuxi_pthread_support.o_INCFLAGS = $(SWEET_PTHREAD_INC)
- fuxi_pthread_synch.o_INCFLAGS = $(SWEET_PTHREAD_INC)
+ fuxi_pthread_init.o_INCFLAGS = $(FUXI_PTHREAD_INC)
+ fuxi_pthread_support.o_INCFLAGS = $(FUXI_PTHREAD_INC)
+ fuxi_pthread_synch.o_INCFLAGS = $(FUXI_PTHREAD_INC)
 +
-+# Apple OSS HFS built in (bsd/sweet_hfs): compiled like the kext, see sweet_hfs_compat.h.
++# Apple OSS HFS built in (bsd/fuxi_hfs): compiled like the kext, see fuxi_hfs_compat.h.
 +# The compat header must come after the kernel's -D options, hence _CFLAGS_ADD.
-+SWEET_HFS_ROOT = $(SRCROOT)/bsd/sweet_hfs
-+SWEET_HFS_OBJS = BTree.o BTreeAllocate.o BTreeMiscOps.o BTreeNodeOps.o BTreeNodeReserve.o BTreeScanner.o BTreeTreeOps.o BTreeWrapper.o CatalogUtilities.o FileExtentMapping.o FileIDsServices.o MacOSStubs.o UnicodeWrappers.o VolumeAllocation.o hfs_attrlist.o hfs_btreeio.o hfs_catalog.o hfs_chash.o hfs_cnode.o hfs_cprotect.o hfs_endian.o hfs_extents.o hfs_fsinfo.o hfs_hotfiles.o hfs_journal.o hfs_link.o hfs_lookup.o hfs_notification.o hfs_quota.o hfs_readwrite.o hfs_resize.o hfs_search.o hfs_vfsops.o hfs_vfsutils.o hfs_vnops.o hfs_xattr.o rangelist.o hfs_encodinghint.o hfs_encodings.o sweet_hfs_iokit.o
-+$(foreach o,$(SWEET_HFS_OBJS),$(eval $(o)_CFLAGS_ADD += -include $(SWEET_HFS_ROOT)/sweet_hfs_compat.h -I$(SWEET_HFS_ROOT) -I$(SWEET_HFS_ROOT)/core))
++FUXI_HFS_ROOT = $(SRCROOT)/bsd/fuxi_hfs
++FUXI_HFS_OBJS = BTree.o BTreeAllocate.o BTreeMiscOps.o BTreeNodeOps.o BTreeNodeReserve.o BTreeScanner.o BTreeTreeOps.o BTreeWrapper.o CatalogUtilities.o FileExtentMapping.o FileIDsServices.o MacOSStubs.o UnicodeWrappers.o VolumeAllocation.o hfs_attrlist.o hfs_btreeio.o hfs_catalog.o hfs_chash.o hfs_cnode.o hfs_cprotect.o hfs_endian.o hfs_extents.o hfs_fsinfo.o hfs_hotfiles.o hfs_journal.o hfs_link.o hfs_lookup.o hfs_notification.o hfs_quota.o hfs_readwrite.o hfs_resize.o hfs_search.o hfs_vfsops.o hfs_vfsutils.o hfs_vnops.o hfs_xattr.o rangelist.o hfs_encodinghint.o hfs_encodings.o fuxi_hfs_iokit.o
++$(foreach o,$(FUXI_HFS_OBJS),$(eval $(o)_CFLAGS_ADD += -include $(FUXI_HFS_ROOT)/fuxi_hfs_compat.h -I$(FUXI_HFS_ROOT) -I$(FUXI_HFS_ROOT)/core))
 +# HFSEncodings is a separate kext on Apple with its own allocation counter.
 +hfs_encodings.o_CFLAGS_ADD += -Dhfs_allocated=hfs_encodings_allocated
 +hfs_encodinghint.o_CFLAGS_ADD += -Dhfs_allocated=hfs_encodings_allocated
@@ -100,10 +100,10 @@ diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
  	bsd_init_kprintf("calling vfsinit\n");
  	vfsinit();
  
-+#if SWEET_HFS
++#if FUXI_HFS
 +	/* HFS is built in on SWEET: register it like its kext would, before mounting root. */
-+	extern void sweet_hfs_register(void);
-+	sweet_hfs_register();
++	extern void fuxi_hfs_register(void);
++	fuxi_hfs_register();
 +#endif
 +
  #if CONFIG_PROC_UUID_POLICY
@@ -181,10 +181,10 @@ diff --git a/bsd/miscfs/mockfs/mockfs_vfsops.c b/bsd/miscfs/mockfs/mockfs_vfsops
  
  	/*
  	 * There are no M_MOCKFS* definitions at the moment, just use M_TEMP.
-diff --git a/bsd/sweet_hfs/sweet_hfs_compat.h b/bsd/sweet_hfs/sweet_hfs_compat.h
+diff --git a/bsd/fuxi_hfs/fuxi_hfs_compat.h b/bsd/fuxi_hfs/fuxi_hfs_compat.h
 new file mode 100644
 --- /dev/null
-+++ b/bsd/sweet_hfs/sweet_hfs_compat.h
++++ b/bsd/fuxi_hfs/fuxi_hfs_compat.h
 @@ -0,0 +1,26 @@
 +/*
 + * Compile Apple's HFS kext sources inside SWEET the way the kext is built:
@@ -193,8 +193,8 @@ new file mode 100644
 + * visible to a kext build, so the ones HFS tests are cleared first. SWEET
 + * has no AppleKeyStore, so content protection stays off.
 + */
-+#ifndef SWEET_HFS_COMPAT_H
-+#define SWEET_HFS_COMPAT_H
++#ifndef FUXI_HFS_COMPAT_H
++#define FUXI_HFS_COMPAT_H
 +#undef BSD_KERNEL_PRIVATE
 +#undef XNU_KERNEL_PRIVATE
 +#undef CONFIG_PROTECT
@@ -209,13 +209,13 @@ new file mode 100644
 +#undef HFS_COMPRESSION
 +#include "core/kext-config.h"
 +
-+/* Built in, not a loadable kext (see sweet_hfs_iokit.c). */
-+#define OSKextGetCurrentLoadTag sweet_hfs_current_load_tag
++/* Built in, not a loadable kext (see fuxi_hfs_iokit.c). */
++#define OSKextGetCurrentLoadTag fuxi_hfs_current_load_tag
 +#endif
-diff --git a/bsd/sweet_hfs/sweet_hfs_iokit.c b/bsd/sweet_hfs/sweet_hfs_iokit.c
+diff --git a/bsd/fuxi_hfs/fuxi_hfs_iokit.c b/bsd/fuxi_hfs/fuxi_hfs_iokit.c
 new file mode 100644
 --- /dev/null
-+++ b/bsd/sweet_hfs/sweet_hfs_iokit.c
++++ b/bsd/fuxi_hfs/fuxi_hfs_iokit.c
 @@ -0,0 +1,132 @@
 +/*
 + * Built-in replacement for HFS's IOKit glue (core/hfs_iokit.cpp and
@@ -223,7 +223,7 @@ new file mode 100644
 + *
 + * On Apple platforms HFS is a kext: IOKit matches its IOService on
 + * IOResources and start() registers the filesystem. SWEET links HFS into
-+ * the kernel instead, so bsd_init calls sweet_hfs_register() right after
++ * the kernel instead, so bsd_init calls fuxi_hfs_register() right after
 + * vfsinit(), before the root filesystem is mounted. The registration is the
 + * kext's start() sequence.
 + *
@@ -231,7 +231,7 @@ new file mode 100644
 + * has no IOStorageFamily and therefore no IOMedia objects: nothing is
 + * ejectable and no media carries an external journal. The platform expert
 + * publishes no serial number. Content protection (AppleKeyStore) is not
-+ * built (sweet_hfs_compat.h).
++ * built (fuxi_hfs_compat.h).
 + */
 +#include <libkern/OSKextLib.h>
 +#include <pexpert/pexpert.h>
@@ -256,12 +256,12 @@ new file mode 100644
 +extern struct vnodeopv_desc hfs_fifoop_opv_desc;
 +extern struct vfsops hfs_vfsops;
 +
-+void sweet_hfs_register(void);
++void fuxi_hfs_register(void);
 +
-+static vfstable_t sweet_hfs_vfs_handle;
++static vfstable_t fuxi_hfs_vfs_handle;
 +
 +void
-+sweet_hfs_register(void)
++fuxi_hfs_register(void)
 +{
 +#ifndef panic_on_assert
 +	panic_on_assert = PE_i_can_has_kernel_configuration() & kPEICanHasAssertions;
@@ -297,7 +297,7 @@ new file mode 100644
 +		    | VFS_TBLNATIVEXATTR)
 +	};
 +
-+	int ret = vfs_fsadd(&vfe, &sweet_hfs_vfs_handle);
++	int ret = vfs_fsadd(&vfe, &fuxi_hfs_vfs_handle);
 +	if (ret) {
 +		panic("FUXI HFS: vfs_fsadd failed: %d", ret);
 +	}
@@ -322,7 +322,7 @@ new file mode 100644
 +
 +/* Built in, not a loadable kext: there is no kext to retain per mount. */
 +OSKextLoadTag
-+sweet_hfs_current_load_tag(void)
++fuxi_hfs_current_load_tag(void)
 +{
 +	return kOSKextInvalidLoadTag;
 +}

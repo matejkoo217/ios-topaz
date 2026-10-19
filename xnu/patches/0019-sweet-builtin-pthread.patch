@@ -21,11 +21,11 @@ diff --git a/bsd/conf/Makefile.template b/bsd/conf/Makefile.template
 +
 +# This provider is built into SWEET; other boards use their normal kext.
 +ifneq ($(filter $(CURRENT_MACHINE_CONFIG),FUXI),)
-+SWEET_PTHREAD_ROOT = $(SRCROOT)/bsd/pthread/sweet_libpthread
-+SWEET_PTHREAD_INC = -I$(SWEET_PTHREAD_ROOT) -I$(SWEET_PTHREAD_ROOT)/private -I$(SWEET_PTHREAD_ROOT)/include
-+fuxi_pthread_init.o_INCFLAGS = $(SWEET_PTHREAD_INC)
-+fuxi_pthread_support.o_INCFLAGS = $(SWEET_PTHREAD_INC)
-+fuxi_pthread_synch.o_INCFLAGS = $(SWEET_PTHREAD_INC)
++FUXI_PTHREAD_ROOT = $(SRCROOT)/bsd/pthread/fuxi_libpthread
++FUXI_PTHREAD_INC = -I$(FUXI_PTHREAD_ROOT) -I$(FUXI_PTHREAD_ROOT)/private -I$(FUXI_PTHREAD_ROOT)/include
++fuxi_pthread_init.o_INCFLAGS = $(FUXI_PTHREAD_INC)
++fuxi_pthread_support.o_INCFLAGS = $(FUXI_PTHREAD_INC)
++fuxi_pthread_synch.o_INCFLAGS = $(FUXI_PTHREAD_INC)
 +endif
  
  #
@@ -56,8 +56,8 @@ new file mode 100644
 + * It owns its full ksyn_waitq_element layout; the kernel's opaque counterpart
 + * reserves this layout. All communication with private BSD state uses callbacks.
 + */
-+#ifndef SWEET_PTHREAD_COMPAT_H
-+#define SWEET_PTHREAD_COMPAT_H
++#ifndef FUXI_PTHREAD_COMPAT_H
++#define FUXI_PTHREAD_COMPAT_H
 +#undef BSD_KERNEL_PRIVATE
 +#undef XNU_KERNEL_PRIVATE
 +#define __PTHREAD_EXPOSE_INTERNALS__ 1
@@ -84,7 +84,7 @@ new file mode 100644
 +/* Built-in provider: Apple libpthread-514.100.2, paired with xnu-8796.141.3. */
 +#if defined(ARM64_BOARD_CONFIG_FUXI)
 +#include "fuxi_pthread_compat.h"
-+#include "sweet_libpthread/kern/kern_init.c"
++#include "fuxi_libpthread/kern/kern_init.c"
 +
 +/* Keep the provider's full layout within the kernel's reserved storage. */
 +_Static_assert(sizeof(struct ksyn_waitq_element) == 56,
@@ -115,7 +115,7 @@ new file mode 100644
 +/* Built-in provider: Apple libpthread-514.100.2, paired with xnu-8796.141.3. */
 +#if defined(ARM64_BOARD_CONFIG_FUXI)
 +#include "fuxi_pthread_compat.h"
-+#include "sweet_libpthread/kern/kern_support.c"
++#include "fuxi_libpthread/kern/kern_support.c"
 +#endif /* ARM64_BOARD_CONFIG_FUXI */
 diff --git a/bsd/pthread/fuxi_pthread_synch.c b/bsd/pthread/fuxi_pthread_synch.c
 new file mode 100644
@@ -125,5 +125,5 @@ new file mode 100644
 +/* Built-in provider: Apple libpthread-514.100.2, paired with xnu-8796.141.3. */
 +#if defined(ARM64_BOARD_CONFIG_FUXI)
 +#include "fuxi_pthread_compat.h"
-+#include "sweet_libpthread/kern/kern_synch.c"
++#include "fuxi_libpthread/kern/kern_synch.c"
 +#endif /* ARM64_BOARD_CONFIG_FUXI */

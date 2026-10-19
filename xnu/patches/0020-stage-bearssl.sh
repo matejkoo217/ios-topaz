@@ -18,7 +18,7 @@ import shutil
 import sys
 
 source = Path(sys.argv[1])
-target = Path('libkern/crypto/sweet_bearssl')
+target = Path('libkern/crypto/fuxi_bearssl')
 if target.exists():
     raise SystemExit(f'refusing to overwrite existing AES source: {target}')
 shutil.copytree(source / 'inc', target / 'inc')

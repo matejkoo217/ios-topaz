@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stage Apple's open source HFS for the SWEET built-in filesystem (bsd/sweet_hfs).
+# Stage Apple's open source HFS for the SWEET built-in filesystem (bsd/fuxi_hfs).
 # dxb runs patches/*.sh from the XNU source root before applying *.patch.
 set -euo pipefail
 
@@ -28,7 +28,7 @@ import shutil
 import sys
 
 source = Path(sys.argv[1])
-target = Path('bsd/sweet_hfs')
+target = Path('bsd/fuxi_hfs')
 if target.exists():
     raise SystemExit(f'refusing to overwrite existing HFS sources: {target}')
 # Preserve upstream copyright/license headers; no downloaded sources in git.
@@ -36,7 +36,7 @@ for directory in ('core', 'hfs_encodings'):
     shutil.copytree(source / directory, target / directory)
 
 # SWEET has no AppleKeyStore (content protection is not built, see
-# sweet_hfs_compat.h); its header is only needed for the key-wrapping API.
+# fuxi_hfs_compat.h); its header is only needed for the key-wrapping API.
 path = target / 'core' / 'hfs_iokit.h'
 text = path.read_text()
 include = '#include <AppleKeyStore/AppleKeyStoreFSServices.h>\n'
@@ -52,5 +52,5 @@ PY
 
 # Kernel builds use -nostdinc; HFS's kext-config.h needs the SDK's target macros.
 hfs_sdk=$(xcrun --sdk macosx --show-sdk-path)
-cp "$hfs_sdk/usr/include/TargetConditionals.h" bsd/sweet_hfs/
+cp "$hfs_sdk/usr/include/TargetConditionals.h" bsd/fuxi_hfs/
 echo "Staged hfs-627.100.6 ($hfs_sha) for SWEET"

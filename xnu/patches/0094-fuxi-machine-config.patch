@@ -8,7 +8,7 @@ index 0000000..f03605a
 +# fuxi (Xiaomi 13, SM8550 "kalama"): a copy of MASTER.arm64.sweet. The feature
 +# set is deliberately identical - every config_* option below is either
 +# SoC-independent bring-up (nos_arm_asm, nos_arm_pmap, the kperf/kpc stub) or a
-+# userland/filesystem need of the iOS 16 root (mockfs, sweet_hfs, bindfs,
++# userland/filesystem need of the iOS 16 root (mockfs, fuxi_hfs, bindfs,
 +# nullfs) and applies to fuxi unchanged.
 +#
 +# SM6225/SM7150-specific entries that MUST be revisited for fuxi:
@@ -16,7 +16,7 @@ index 0000000..f03605a
 +#     Apple's closed, arm64e-only KDK libs. fuxi is plain arm64 too, so they
 +#     stay - but kpc is a no-hardware stub (no PMU path yet) and kperf only
 +#     builds because of it.
-+#   * sweet_hfs / mockfs / bindfs: the inherited sweet filesystem stack. It is
++#   * fuxi_hfs / mockfs / bindfs: the inherited sweet filesystem stack. It is
 +#     SoC-independent, but it carries the fuxi_* source names - retarget the
 +#     drivers, not this list.
 +#   * config_pmap_ppl (KERNEL_BASE): PPL/XNU_MONITOR is off for both sweet and
@@ -53,7 +53,7 @@ index 0000000..f03605a
 +#  BSD_RELEASE =    [ BSD_BASE ]
 +#  BSD_DEV =        [ BSD_BASE config_vnguard ]
 +#  BSD_DEBUG =      [ BSD_BASE config_vnguard ]
-+#  FILESYS_BASE =   [ devfs fdesc fifo mockfs sweet_hfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_searchfs config_volfs config_appledouble nullfs bindfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
++#  FILESYS_BASE =   [ devfs fdesc fifo mockfs fuxi_hfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_searchfs config_volfs config_appledouble nullfs bindfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
 +#  FILESYS_RELEASE= [ FILESYS_BASE ]
 +#  FILESYS_DEV =    [ FILESYS_BASE config_iocount_trace ]
 +#  FILESYS_DEBUG =  [ FILESYS_BASE config_iocount_trace ]
