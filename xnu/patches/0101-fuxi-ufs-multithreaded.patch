@@ -1,0 +1,960 @@
+fuxi: 0101 -- multithreaded UFS root device (8 slots, one per core)
+
+The root driver issued polled SCSI commands ONE at a time behind a single global
+mutex, with a single UTRD, a single UCD and a single 1 MiB bounce buffer.  Even
+with cpus=8 every filesystem read queued behind that lock, which is why a cold
+boot takes minutes: the dyld shared cache alone is 3.3 GB read in 4 KiB blocks,
+~800k commands serialised end to end.
+
+The host exposes 32 UTRL slots (CAP low 5 bits = 0x1F); Linux's ufshcd would run
+can_queue = 31.  This takes 8 -- one per core -- which captures the available
+parallelism for HFS+/dyld workloads without the tag-map machinery of a 31-deep
+queue:
+
+  * each slot owns its own UTRD, UCD (128-byte aligned) and 1 MiB bounce buffer
+  * one contiguous DMA allocation; the host is not cache coherent, so each slot
+    cleans/invalidates only its own ranges
+  * only the slot's own doorbell bit is rung, and only that bit is polled, so
+    commands from different threads are genuinely concurrent
+  * the global lock now covers only slot allocation and rare state changes
+  * REG_IS is cleared only when the whole doorbell is idle, so one slot cannot
+    stomp another's status
+
+DMA layout is verified to fit: 8 UTRDs end at 0x100, 8 UCDs at 0x3400, bounce
+area starts at 0x4000, total 8.02 MiB.
+
+Two corrections applied on top of the proposed code:
+
+1. The GPT write-fence was 'lba + count - 1 >= gpt_alt - 4'.  With the backup
+   GPT at LBA 61850619 that fence begins at 61850615, but userdata runs to
+   61850618 and the persistent log ring occupies its final 4 MiB (61849594..
+   61850618) -- so every ring flush would have been refused and the log thread
+   would stop.  The '- 4' margin is unnecessary: ufs_write_blocks_slot already
+   rejects anything outside the partition bounds before this check, so it cannot
+   reach the backup GPT regardless.  Fence now compares against gpt_alt itself.
+
+2. The proposed file carried the original 50us/200us command wait, undoing 0100;
+   those constants are re-applied here (5us/20us).
+
+Deferred: interrupts.  This is still polled (REG_IE=0) and still bounds the
+partition by polling each slot's own doorbell bit, but latencies now overlap
+across slots instead of stacking.  REG_IE plus a completion path would remove the
+polling entirely and is the next step.
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -1,18 +1,19 @@
+ /*
+- * SWEET internal UFS root device.
++ * SWEET internal UFS root device — multithreaded variant for Xiaomi 13
++ * (fuxi / SM8550 / UFS 4.0).
+  *
+- * The Qualcomm UFS host (UFSHCI 2.1) is left enabled with the link up by the
+- * bootloader, which loaded our boot image from it. This driver reuses that
+- * state: it points the transfer request list at its own memory (verifying the
+- * host took it before ringing any doorbell) and issues polled SCSI commands,
+- * one at a time, to LUN 0. It finds one GPT partition by name (boot-arg
+- * ufsroot=, default "userdata") and exposes it as the BSD disk ufsroot0
+- * (rufsroot0), with 512-byte logical sectors over the device's 4 KiB blocks.
+- * Root on it with rd=ufsroot0.
++ * The Qualcomm UFS host is left enabled with the link up by the bootloader.
++ * We take over the host's UTRL and issue polled SCSI commands to LUN 0.
++ * The host on this SoC exposes 32 UTRL slots (CAP low 5 bits = 0x1F);
++ * Linux's ufshcd would run can_queue = 31. We use UFS_MT_DEPTH = 8 slots
++ * (one per core) — each slot has its own UTRD, UCD and 1 MiB bounce buffer,
++ * so commands from different threads are fully concurrent. Depth 8 gets
++ * most of the available parallelism for HFS+/dyld workloads without the
++ * tag-map complexity of a 31-deep queue.
+  *
+- * All DMA goes through one physically contiguous allocation (descriptors and
+- * a 1 MiB bounce buffer); the host is not cache coherent, so caches are
+- * cleaned/invalidated around each command.
++ * All DMA goes through one physically contiguous allocation. The host is
++ * not cache coherent, so each slot cleans/invalidates only its own ranges
++ * around each command.
+  *
+  * Writes are refused unless boot-arg ufsrw=1 is set. Every write is checked
+  * against the partition bounds again right before it is issued, so nothing
+@@ -41,13 +42,12 @@
+ #include <machine/atomic.h>
+ 
+ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+-/* osfmk/arm/machine_routines.h, not exported to the BSD layer */
+ extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
+-/* osfmk/arm/cpu_data.h, not exported to the BSD layer */
+ extern int get_preemption_level(void);
+ extern kern_return_t kernel_thread_start(thread_continue_t, void *, thread_t *);
+ extern void thread_deallocate(thread_t);
+ extern int hz;
++
+ static void sweet_log_start(void);
+ extern void sweet_sample_start(void);
+ extern void sweet_keys_init(void);
+@@ -67,21 +67,30 @@
+ 
+ #define HCS_DP          (1u << 0)
+ #define HCS_UTRLRDY     (1u << 1)
+-#define CAP_64AS        (1u << 24)              /* 64-bit DMA addressing */
++#define CAP_64AS        (1u << 24)
+ 
+ #define UFS_BLOCK       4096u
+ #define BOUNCE_SIZE     (1u << 20)
+-#define PRDT_CHUNK      (256u << 10)            /* PRDT byte count field: 18 bits */
++#define PRDT_CHUNK      (256u << 10)
+ #define PRDT_MAX        (BOUNCE_SIZE / PRDT_CHUNK)
+ #define CMD_TIMEOUT_NS  (5ull * NSEC_PER_SEC)
+-#define CMD_SPIN_NS     (50ull * NSEC_PER_USEC)
+-#define CMD_SLEEP_NS    (200ull * NSEC_PER_USEC)
++/*
++ * Per-command wait budget (see 0100).  UFS answers a small read in tens of
++ * microseconds, so the original 200us sleep dominated: a cold boot reads the
++ * 3.3 GB dyld cache in 4 KiB blocks (~800k commands) = ~160 s of pure sleep.
++ * With 8 slots the latency overlaps, but there is no reason to keep paying it.
++ */
++#define CMD_SPIN_NS     (5ull * NSEC_PER_USEC)
++#define CMD_SLEEP_NS    (20ull * NSEC_PER_USEC)
++
++/* Parallelism: 8 slots for 8 cores. */
++#define UFS_MT_DEPTH    8
+ 
+ struct utrd {
+ 	uint32_t dw0, dw1, dw2, dw3;
+ 	uint32_t ucdba, ucdbau;
+-	uint32_t resp;          /* [31:16] response UPIU offset, [15:0] length, DWORDs */
+-	uint32_t prdt;          /* [31:16] PRDT offset (DWORDs), [15:0] entries */
++	uint32_t resp;
++	uint32_t prdt;
+ };
+ 
+ struct ucd {
+@@ -92,29 +101,42 @@
+ 	} prdt[PRDT_MAX];
+ };
+ 
+-/* Layout of the contiguous DMA allocation. */
++/* Each UCD is padded to 128 bytes so slot->ucd_off stays aligned. */
++#define UFS_MT_UCD_SIZE ((sizeof(struct ucd) + 127) & ~((size_t)127))
++
++/* DMA layout: 8 UTRDs (256 B), 8 UCDs (8*0x480), 8 × 1 MiB bounce. */
+ #define DMA_UTRL        0x0000                  /* 1 KiB aligned */
+-#define DMA_UCD         0x1000                  /* 128 byte aligned */
+-#define DMA_BOUNCE      0x4000
+-#define DMA_SIZE        (DMA_BOUNCE + BOUNCE_SIZE)
++#define DMA_UCD         0x1000                  /* 128 byte aligned, per-slot */
++#define DMA_BOUNCE      0x4000                  /* 8 × 1 MiB */
++#define DMA_SIZE        (DMA_BOUNCE + UFS_MT_DEPTH * BOUNCE_SIZE)
++
++struct ufs_slot {
++	uint32_t index;
++	uint32_t tag;
++	bool     busy;
++	int      wait_chan;
++};
+ 
+ static struct {
+ 	vm_offset_t regs;
+-	vm_offset_t dma;                        /* kernel VA of the DMA allocation */
+-	uint64_t dma_pa;
+-	uint8_t lun;
+-	uint8_t tag;
+-	uint64_t first_block, nblocks;          /* partition, in 4 KiB device blocks */
+-	uint32_t secsize;                       /* logical sector size for the BSD layer */
+-	bool writable;                          /* boot-arg ufsrw=1 */
+-	bool cache;                             /* boot-arg ufscache=1 */
+-	bool wait;                              /* boot-arg ufswait=1 */
+-	int bmajor, cmajor;
+-	dev_t bdev;
+-	bool ready;
++	vm_offset_t dma;
++	uint64_t    dma_pa;
++	uint8_t     lun;
++	uint8_t     next_tag;
++	uint64_t    first_block, nblocks;
++	uint32_t    secsize;
++	bool        writable;
++	bool        cache;
++	bool        wait;
++	int         bmajor, cmajor;
++	dev_t       bdev;
++	bool        ready;
++	struct ufs_slot slots[UFS_MT_DEPTH];
++	int         free_chan;
+ } su;
+ 
+ static LCK_GRP_DECLARE(sweet_ufs_grp, "sweet_ufs");
++/* Protects slot allocation/free, next_tag, and rare su state changes. */
+ static LCK_MTX_DECLARE(sweet_ufs_lock, &sweet_ufs_grp);
+ 
+ static inline uint32_t
+@@ -141,34 +163,102 @@
+ 	clean_dcache64((addr64_t)(su.dma_pa + off), len, TRUE);
+ }
+ 
++static inline void *
++slot_bounce(struct ufs_slot *slot)
++{
++	return (void *)(su.dma + DMA_BOUNCE + (size_t)slot->index * BOUNCE_SIZE);
++}
++
++static inline uint32_t
++slot_bounce_off(struct ufs_slot *slot)
++{
++	return DMA_BOUNCE + slot->index * BOUNCE_SIZE;
++}
++
++static inline uint32_t
++slot_utrd_off(struct ufs_slot *slot)
++{
++	return DMA_UTRL + slot->index * (uint32_t)sizeof(struct utrd);
++}
++
++static inline uint32_t
++slot_ucd_off(struct ufs_slot *slot)
++{
++	return DMA_UCD + slot->index * (uint32_t)UFS_MT_UCD_SIZE;
++}
++
++static struct ufs_slot *
++ufs_alloc_slot(void)
++{
++	lck_mtx_lock(&sweet_ufs_lock);
++	for (;;) {
++		for (int i = 0; i < UFS_MT_DEPTH; i++) {
++			if (!su.slots[i].busy) {
++				su.slots[i].busy = true;
++				su.slots[i].tag = ++su.next_tag;
++				lck_mtx_unlock(&sweet_ufs_lock);
++				return &su.slots[i];
++			}
++		}
++		/*
++		 * All slots busy. Sleep briefly so we don't burn a core
++		 * spinning; ufs_free_slot wakes us as soon as one frees.
++		 */
++		bool can_sleep = su.wait && su.ready && ml_get_interrupts_enabled() &&
++		    !ml_at_interrupt_context() && get_preemption_level() == 0;
++		if (can_sleep) {
++			(void)msleep(&su.free_chan, &sweet_ufs_lock, PRIBIO,
++			    "ufsslot", 1);
++		} else {
++			lck_mtx_unlock(&sweet_ufs_lock);
++			delay(1);
++			lck_mtx_lock(&sweet_ufs_lock);
++		}
++	}
++}
++
++static void
++ufs_free_slot(struct ufs_slot *slot)
++{
++	lck_mtx_lock(&sweet_ufs_lock);
++	slot->busy = false;
++	wakeup(&su.free_chan);
++	lck_mtx_unlock(&sweet_ufs_lock);
++}
++
+ /*
+- * One SCSI command in slot 0, data (if any) to/from the bounce buffer
+- * (to the device when write is set). Returns 0 or an errno.
++ * Issue one SCSI command on the given slot. Data (if any) is to/from the
++ * slot's own bounce buffer. Returns 0 or an errno.
+  */
+ static int
+-ufs_scsi(const uint8_t *cdb, unsigned cdb_len, uint32_t len, bool write)
++ufs_scsi_slot(struct ufs_slot *slot, const uint8_t *cdb, unsigned cdb_len,
++    uint32_t len, bool write)
+ {
+-	struct utrd *utrd = (struct utrd *)(su.dma + DMA_UTRL);
+-	struct ucd *ucd = (struct ucd *)(su.dma + DMA_UCD);
+-	uint64_t ucd_pa = su.dma_pa + DMA_UCD, bounce_pa = su.dma_pa + DMA_BOUNCE;
++	uint32_t utrd_off  = slot_utrd_off(slot);
++	uint32_t ucd_off   = slot_ucd_off(slot);
++	uint32_t bounce_off = slot_bounce_off(slot);
++	struct utrd *utrd = (struct utrd *)(su.dma + utrd_off);
++	struct ucd *ucd   = (struct ucd *)(su.dma + ucd_off);
++	uint64_t ucd_pa   = su.dma_pa + ucd_off;
++	uint64_t bounce_pa = su.dma_pa + bounce_off;
++	uint32_t slotbit  = 1u << slot->index;
+ 
+ 	assert(len <= BOUNCE_SIZE);
+ 	bzero(utrd, sizeof(*utrd));
+ 	bzero(ucd, sizeof(*ucd));
+ 
+-	ucd->cmd[0] = 0x01;                     /* COMMAND UPIU */
+-	ucd->cmd[1] = len ? (write ? 0x20 : 0x40) : 0x00;      /* W: data out, R: data in */
++	ucd->cmd[0] = 0x01;
++	ucd->cmd[1] = len ? (write ? 0x20 : 0x40) : 0x00;
+ 	ucd->cmd[2] = su.lun;
+-	ucd->cmd[3] = ++su.tag;
++	ucd->cmd[3] = (uint8_t)slot->tag;
+ 	ucd->cmd[12] = (uint8_t)(len >> 24);
+ 	ucd->cmd[13] = (uint8_t)(len >> 16);
+ 	ucd->cmd[14] = (uint8_t)(len >> 8);
+ 	ucd->cmd[15] = (uint8_t)len;
+ 	memcpy(&ucd->cmd[16], cdb, cdb_len);
+ 
+-	/* DD: 1 = memory to device, 2 = device to memory. */
+ 	utrd->dw0 = (1u << 28) | ((len ? (write ? 1u : 2u) : 0u) << 25) | (1u << 24);
+-	utrd->dw2 = 0x0f;                       /* OCS invalid until updated */
++	utrd->dw2 = 0x0f;
+ 	utrd->ucdba = (uint32_t)ucd_pa;
+ 	utrd->ucdbau = (uint32_t)(ucd_pa >> 32);
+ 	utrd->resp = (512u / 4) << 16 | (512u / 4);
+@@ -184,27 +274,29 @@
+ 	}
+ 
+ 	if (su.cache) {
+-		dma_clean(DMA_UTRL, sizeof(*utrd));
+-		dma_clean(DMA_UCD, 16 + cdb_len);
+-		dma_sync(DMA_UCD + offsetof(struct ucd, resp), sizeof(ucd->resp));
++		dma_clean(utrd_off, sizeof(*utrd));
++		dma_clean(ucd_off, 16 + cdb_len);
++		dma_sync(ucd_off + offsetof(struct ucd, resp), sizeof(ucd->resp));
+ 		if (len) {
+-			dma_clean(DMA_UCD + offsetof(struct ucd, prdt),
++			dma_clean(ucd_off + offsetof(struct ucd, prdt),
+ 			    (utrd->prdt & 0xffff) * sizeof(ucd->prdt[0]));
+ 		}
+ 	} else {
+-		dma_sync(DMA_UTRL, sizeof(*utrd));
+-		dma_sync(DMA_UCD, sizeof(*ucd));
++		dma_sync(utrd_off, sizeof(*utrd));
++		dma_sync(ucd_off, sizeof(*ucd));
+ 	}
+ 	if (len) {
+ 		if (su.cache && write) {
+-			dma_clean(DMA_BOUNCE, len);
++			dma_clean(bounce_off, len);
+ 		} else {
+-			dma_sync(DMA_BOUNCE, len);
++			dma_sync(bounce_off, len);
+ 		}
+ 	}
+ 	__builtin_arm_dsb(0xf);
+ 
+-	ufs_wr(REG_UTRLDBR, 1);
++	/* Ring only this slot's doorbell bit. */
++	ufs_wr(REG_UTRLDBR, slotbit);
++
+ 	uint64_t deadline;
+ 	nanoseconds_to_absolutetime(CMD_TIMEOUT_NS, &deadline);
+ 	deadline += mach_absolute_time();
+@@ -216,18 +308,24 @@
+ 		spin_until += mach_absolute_time();
+ 		nanoseconds_to_absolutetime(CMD_SLEEP_NS, &sleep_interval);
+ 	}
+-	while (ufs_rd(REG_UTRLDBR) & 1) {
++	while (ufs_rd(REG_UTRLDBR) & slotbit) {
+ 		uint64_t now = mach_absolute_time();
+ 		if (now > deadline) {
+-			ufs_wr(REG_UTRLCLR, ~1u);
+-			printf("SWEET UFS: command 0x%02x timed out\n", cdb[0]);
++			/* Clear only this slot — UTRLCLR is write-1-to-clear. */
++			ufs_wr(REG_UTRLCLR, slotbit);
++			printf("SWEET UFS: command 0x%02x timed out (slot %u)\n",
++			    cdb[0], slot->index);
+ 			return ETIMEDOUT;
+ 		}
+ 		if (sleepable && now >= spin_until) {
+ 			uint64_t wake = now + MIN(sleep_interval, deadline - now);
+-			/* Keep the mutex: slot 0 and the bounce buffer are still owned. */
+-			if (assert_wait_deadline_with_leeway((event_t)&su.wait, THREAD_UNINT,
+-			    TIMEOUT_URGENCY_SYS_CRITICAL, wake, 0) == THREAD_WAITING) {
++			/*
++			 * We own this slot and its bounce buffer, so we can
++			 * safely drop the CPU here without a lock.
++			 */
++			if (assert_wait_deadline_with_leeway((event_t)&slot->wait_chan,
++			    THREAD_UNINT, TIMEOUT_URGENCY_SYS_CRITICAL, wake, 0) ==
++			    THREAD_WAITING) {
+ 				thread_block(THREAD_CONTINUE_NULL);
+ 			}
+ 		} else {
+@@ -235,30 +333,49 @@
+ 		}
+ 	}
+ 	__builtin_arm_dsb(0xf);
+-	ufs_wr(REG_IS, ufs_rd(REG_IS));         /* acknowledge completion status */
+ 
+-	dma_sync(DMA_UTRL, sizeof(*utrd));
++	/*
++	 * REG_IS is shared across slots. In polled mode we don't depend on
++	 * it; clear it opportunistically only when the whole doorbell is
++	 * idle, to avoid stomping on another slot's in-flight status.
++	 */
++	if (ufs_rd(REG_UTRLDBR) == 0) {
++		ufs_wr(REG_IS, ufs_rd(REG_IS));
++	}
++
++	dma_sync(utrd_off, sizeof(*utrd));
+ 	if (su.cache) {
+-		dma_sync(DMA_UCD + offsetof(struct ucd, resp), sizeof(ucd->resp));
++		dma_sync(ucd_off + offsetof(struct ucd, resp), sizeof(ucd->resp));
+ 	} else {
+-		dma_sync(DMA_UCD, sizeof(*ucd));
++		dma_sync(ucd_off, sizeof(*ucd));
+ 	}
+ 	if (len && !(su.cache && write)) {
+-		dma_sync(DMA_BOUNCE, len);
++		dma_sync(bounce_off, len);
+ 	}
+ 
+ 	uint32_t ocs = utrd->dw2 & 0xff;
+ 	if (ocs || ucd->resp[0] != 0x21 || ucd->resp[6] || ucd->resp[7]) {
+-		printf("SWEET UFS: command 0x%02x failed: ocs 0x%x upiu 0x%x response 0x%x status 0x%x\n",
+-		    cdb[0], ocs, ucd->resp[0], ucd->resp[6], ucd->resp[7]);
++		printf("SWEET UFS: command 0x%02x failed on slot %u: "
++		    "ocs 0x%x upiu 0x%x response 0x%x status 0x%x\n",
++		    cdb[0], slot->index, ocs, ucd->resp[0], ucd->resp[6],
++		    ucd->resp[7]);
+ 		return EIO;
+ 	}
+ 	return 0;
+ }
+ 
+-/* READ(10) of count device blocks at lba into the bounce buffer. */
++/* Convenience wrapper: allocate a slot, run the command, free the slot. */
++static int
++ufs_scsi(const uint8_t *cdb, unsigned cdb_len, uint32_t len, bool write)
++{
++	struct ufs_slot *slot = ufs_alloc_slot();
++	int error = ufs_scsi_slot(slot, cdb, cdb_len, len, write);
++	ufs_free_slot(slot);
++	return error;
++}
++
+ static int
+-ufs_read_blocks(uint64_t lba, uint32_t count)
++ufs_read_blocks_slot(struct ufs_slot *slot, uint64_t lba, uint32_t count)
+ {
+ 	if (lba > UINT32_MAX || count > BOUNCE_SIZE / UFS_BLOCK) {
+ 		return EINVAL;
+@@ -268,30 +385,27 @@
+ 		(uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8), (uint8_t)lba,
+ 		0, (uint8_t)(count >> 8), (uint8_t)count, 0
+ 	};
+-	return ufs_scsi(cdb, sizeof(cdb), count * UFS_BLOCK, false);
++	return ufs_scsi_slot(slot, cdb, sizeof(cdb), count * UFS_BLOCK, false);
+ }
+ 
+ /*
+- * topaz: on 2026-10-19 the LUN0 GPT (super, userdata, esp, win, ...) was found
+- * destroyed after iOS sessions. Remember both GPT copies and fence them off;
+- * a watchdog thread re-reads them and panics the moment they change.
++ * topaz: on 2026-10-19 the LUN0 GPT was found destroyed after iOS sessions.
++ * Remember both GPT copies and fence them off; a watchdog thread re-reads
++ * them and panics the moment they change.
+  */
+-static uint64_t gpt_alt;                /* backup header LBA (last LBA of LUN0) */
++static uint64_t gpt_alt;
+ static uint32_t gpt_hcrc, gpt_ecrc, gpt_bhcrc;
+ static int gpt_chan;
+ 
+-/*
+- * WRITE(10) of count device blocks from the bounce buffer to lba. The range
+- * must lie inside the partition: this is the only place data goes out.
+- */
+ static int
+-ufs_write_blocks(uint64_t lba, uint32_t count)
++ufs_write_blocks_slot(struct ufs_slot *slot, uint64_t lba, uint32_t count)
+ {
+ 	if (!su.writable || !su.nblocks || count == 0 || count > BOUNCE_SIZE / UFS_BLOCK ||
+ 	    lba < su.first_block || lba - su.first_block >= su.nblocks ||
+ 	    count > su.nblocks - (lba - su.first_block) || lba + count - 1 > UINT32_MAX ||
+-	    lba < 6 || (gpt_alt && lba + count - 1 >= gpt_alt - 4)) {
+-		printf("SWEET UFS: refusing write of %u blocks at 0x%llx\n", count, lba);
++	    lba < 6 || (gpt_alt && lba + count - 1 >= gpt_alt)) {
++		printf("SWEET UFS: refusing write of %u blocks at 0x%llx\n",
++		    count, lba);
+ 		return EPERM;
+ 	}
+ 	uint8_t cdb[10] = {
+@@ -299,27 +413,49 @@
+ 		(uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8), (uint8_t)lba,
+ 		0, (uint8_t)(count >> 8), (uint8_t)count, 0
+ 	};
+-	return ufs_scsi(cdb, sizeof(cdb), count * UFS_BLOCK, true);
++	return ufs_scsi_slot(slot, cdb, sizeof(cdb), count * UFS_BLOCK, true);
++}
++
++static int
++ufs_write_blocks(uint64_t lba, uint32_t count)
++{
++	struct ufs_slot *slot = ufs_alloc_slot();
++	int error = ufs_write_blocks_slot(slot, lba, count);
++	ufs_free_slot(slot);
++	return error;
++}
++
++static int
++ufs_sync_cache_slot(struct ufs_slot *slot)
++{
++	static const uint8_t cdb[10] = { 0x35 };       /* SYNCHRONIZE CACHE(10) */
++	return ufs_scsi_slot(slot, cdb, sizeof(cdb), 0, false);
+ }
+ 
+ static int
+ ufs_sync_cache(void)
+ {
+-	static const uint8_t cdb[10] = { 0x35 };       /* SYNCHRONIZE CACHE(10), whole LUN */
+-	return ufs_scsi(cdb, sizeof(cdb), 0, false);
++	struct ufs_slot *slot = ufs_alloc_slot();
++	int error = ufs_sync_cache_slot(slot);
++	ufs_free_slot(slot);
++	return error;
+ }
+ 
+ static int
+ ufs_find_partition(const char *want)
+ {
+-	const uint8_t *b = (const uint8_t *)(su.dma + DMA_BOUNCE);
+-	int error = ufs_read_blocks(1, 1);
++	int error = 0;
++	struct ufs_slot *slot = ufs_alloc_slot();
++	const uint8_t *b = slot_bounce(slot);
++
++	error = ufs_read_blocks_slot(slot, 1, 1);
+ 	if (error) {
+-		return error;
++		goto out;
+ 	}
+ 	if (memcmp(b, "EFI PART", 8) != 0) {
+ 		printf("SWEET UFS: LUN %u has no GPT\n", su.lun);
+-		return ENXIO;
++		error = ENXIO;
++		goto out;
+ 	}
+ 	uint64_t entry_lba;
+ 	uint32_t nent, esz;
+@@ -331,11 +467,13 @@
+ 	memcpy(&esz, b + 84, 4);
+ 	if (esz != 128 || nent == 0 || nent * esz > BOUNCE_SIZE) {
+ 		printf("SWEET UFS: unsupported GPT entries %u x %u\n", nent, esz);
+-		return ENXIO;
++		error = ENXIO;
++		goto out;
+ 	}
+-	error = ufs_read_blocks(entry_lba, (nent * esz + UFS_BLOCK - 1) / UFS_BLOCK);
++	error = ufs_read_blocks_slot(slot, entry_lba,
++	    (nent * esz + UFS_BLOCK - 1) / UFS_BLOCK);
+ 	if (error) {
+-		return error;
++		goto out;
+ 	}
+ 	for (uint32_t i = 0; i < nent; i++) {
+ 		const uint8_t *e = b + i * esz;
+@@ -356,19 +494,25 @@
+ 		memcpy(&first, e + 32, 8);
+ 		memcpy(&last, e + 40, 8);
+ 		if (last < first) {
+-			return ENXIO;
++			error = ENXIO;
++			goto out;
+ 		}
+ 		su.first_block = first;
+ 		su.nblocks = last - first + 1;
+-		if (ufs_read_blocks(gpt_alt, 1) == 0 && memcmp(b, "EFI PART", 8) == 0) {
++		if (ufs_read_blocks_slot(slot, gpt_alt, 1) == 0 &&
++		    memcmp(b, "EFI PART", 8) == 0) {
+ 			memcpy(&gpt_bhcrc, b + 16, 4);
+ 		}
+ 		printf("SWEET UFS: GPT LUN0 hcrc %#x ecrc %#x backup@%#llx hcrc %#x\n",
+ 		    gpt_hcrc, gpt_ecrc, gpt_alt, gpt_bhcrc);
+-		return 0;
++		error = 0;
++		goto out;
+ 	}
+ 	printf("SWEET UFS: no GPT partition named \"%s\"\n", want);
+-	return ENOENT;
++	error = ENOENT;
++out:
++	ufs_free_slot(slot);
++	return error;
+ }
+ 
+ static int
+@@ -383,21 +527,20 @@
+ 		printf("SWEET UFS: requests outstanding from the bootloader\n");
+ 		return EBUSY;
+ 	}
+-	/* With RAM above 4 GiB (mkadt.py --highmem) the DMA memory can be there too. */
+ 	if (((su.dma_pa + DMA_SIZE - 1) >> 32) && !(ufs_rd(REG_CAP) & CAP_64AS)) {
+-		printf("SWEET UFS: DMA memory at 0x%llx but the host has no 64-bit addressing\n",
++		printf("SWEET UFS: DMA memory at 0x%llx but host has no 64-bit addressing\n",
+ 		    su.dma_pa);
+ 		return ENXIO;
+ 	}
+-	ufs_wr(REG_IE, 0);                      /* polled operation */
++	ufs_wr(REG_IE, 0);
+ 	ufs_wr(REG_IS, ufs_rd(REG_IS));
+ 	ufs_wr(REG_UTRLRSR, 0);
+ 	uint64_t list = su.dma_pa + DMA_UTRL;
+ 	ufs_wr(REG_UTRLBA, (uint32_t)list);
+ 	ufs_wr(REG_UTRLBAU, (uint32_t)(list >> 32));
+ 	ufs_wr(REG_UTRLRSR, 1);
+-	/* Never ring a doorbell unless the host uses our list. */
+-	if (ufs_rd(REG_UTRLBA) != (uint32_t)list || ufs_rd(REG_UTRLBAU) != (uint32_t)(list >> 32) ||
++	if (ufs_rd(REG_UTRLBA) != (uint32_t)list ||
++	    ufs_rd(REG_UTRLBAU) != (uint32_t)(list >> 32) ||
+ 	    !(ufs_rd(REG_UTRLRSR) & 1)) {
+ 		printf("SWEET UFS: host did not take our request list\n");
+ 		return EIO;
+@@ -406,7 +549,8 @@
+ }
+ 
+ static int
+-sweet_ufs_open(__unused dev_t dev, int flags, __unused int devtype, __unused struct proc *p)
++sweet_ufs_open(__unused dev_t dev, int flags, __unused int devtype,
++    __unused struct proc *p)
+ {
+ 	if (!su.ready) {
+ 		return ENXIO;
+@@ -415,7 +559,8 @@
+ }
+ 
+ static int
+-sweet_ufs_close(__unused dev_t dev, __unused int flags, __unused int devtype, __unused struct proc *p)
++sweet_ufs_close(__unused dev_t dev, __unused int flags, __unused int devtype,
++    __unused struct proc *p)
+ {
+ 	return 0;
+ }
+@@ -428,7 +573,6 @@
+ 	uint64_t off = (uint64_t)buf_blkno(bp) * su.secsize;
+ 	uint32_t count = buf_count(bp);
+ 	uint64_t part_bytes = su.nblocks * UFS_BLOCK;
+-
+ 	bool rd = buf_flags(bp) & B_READ;
+ 
+ 	buf_setresid(bp, count);
+@@ -448,27 +592,34 @@
+ 		goto done;
+ 	}
+ 
+-	lck_mtx_lock(&sweet_ufs_lock);
++	/*
++	 * One slot per strategy call. Different in-flight buffers from
++	 * different threads therefore run concurrently through different
++	 * slots; within one strategy call we still issue sequentially
++	 * because the bounce buffer is shared within a slot.
++	 */
++	struct ufs_slot *slot = ufs_alloc_slot();
++	void *bounce = slot_bounce(slot);
++
+ 	for (uint32_t done = 0; done < count;) {
+ 		uint64_t pos = off + done;
+ 		uint64_t lba = pos / UFS_BLOCK;
+ 		uint32_t skip = (uint32_t)(pos % UFS_BLOCK);
+ 		uint32_t want = MIN(count - done, BOUNCE_SIZE - skip);
+ 		uint32_t blocks = (skip + want + UFS_BLOCK - 1) / UFS_BLOCK;
+-		void *bounce = (void *)(su.dma + DMA_BOUNCE);
+ 		if (rd) {
+-			error = ufs_read_blocks(su.first_block + lba, blocks);
++			error = ufs_read_blocks_slot(slot, su.first_block + lba, blocks);
+ 			if (!error) {
+ 				memcpy(vaddr + done, (const char *)bounce + skip, want);
+ 			}
+ 		} else {
+-			/* Partial device blocks at either end: read, merge, write back. */
++			/* Partial device blocks at either end: read, merge, write. */
+ 			if (skip || (want % UFS_BLOCK)) {
+-				error = ufs_read_blocks(su.first_block + lba, blocks);
++				error = ufs_read_blocks_slot(slot, su.first_block + lba, blocks);
+ 			}
+ 			if (!error) {
+ 				memcpy((char *)bounce + skip, vaddr + done, want);
+-				error = ufs_write_blocks(su.first_block + lba, blocks);
++				error = ufs_write_blocks_slot(slot, su.first_block + lba, blocks);
+ 			}
+ 		}
+ 		if (error) {
+@@ -477,7 +628,7 @@
+ 		done += want;
+ 		buf_setresid(bp, count - done);
+ 	}
+-	lck_mtx_unlock(&sweet_ufs_lock);
++	ufs_free_slot(slot);
+ 	buf_unmap(bp);
+ 
+ done:
+@@ -498,15 +649,19 @@
+ 	case DKIOCGETBLOCKSIZE:
+ 		*f = su.secsize;
+ 		return 0;
+-	case DKIOCSETBLOCKSIZE:
++	case DKIOCSETBLOCKSIZE: {
+ 		if (is_char) {
+ 			return ENODEV;
+ 		}
++		lck_mtx_lock(&sweet_ufs_lock);
+ 		if (*f < DEV_BSIZE || *f > UFS_BLOCK || (*f & (*f - 1))) {
++			lck_mtx_unlock(&sweet_ufs_lock);
+ 			return EINVAL;
+ 		}
+ 		su.secsize = *f;
++		lck_mtx_unlock(&sweet_ufs_lock);
+ 		return 0;
++	}
+ 	case DKIOCGETPHYSICALBLOCKSIZE:
+ 		*f = UFS_BLOCK;
+ 		return 0;
+@@ -517,15 +672,11 @@
+ 		*f = su.writable;
+ 		return 0;
+ 	case DKIOCSYNCHRONIZE:
+-	case DKIOCSYNCHRONIZECACHE: {
++	case DKIOCSYNCHRONIZECACHE:
+ 		if (!su.writable) {
+ 			return 0;
+ 		}
+-		lck_mtx_lock(&sweet_ufs_lock);
+-		int error = ufs_sync_cache();
+-		lck_mtx_unlock(&sweet_ufs_lock);
+-		return error;
+-	}
++		return ufs_sync_cache();
+ 	case DKIOCGETMAXBLOCKCOUNTREAD:
+ 		*o = BOUNCE_SIZE / su.secsize;
+ 		return 0;
+@@ -562,7 +713,8 @@
+ static int
+ sweet_ufs_read(dev_t dev, struct uio *uio, __unused int ioflag)
+ {
+-	return physio(sweet_ufs_strategy, NULL, dev, B_READ, minphys, uio, (int)su.secsize);
++	return physio(sweet_ufs_strategy, NULL, dev, B_READ, minphys, uio,
++	    (int)su.secsize);
+ }
+ 
+ static int
+@@ -571,7 +723,8 @@
+ 	if (!su.writable) {
+ 		return EROFS;
+ 	}
+-	return physio(sweet_ufs_strategy, NULL, dev, B_WRITE, minphys, uio, (int)su.secsize);
++	return physio(sweet_ufs_strategy, NULL, dev, B_WRITE, minphys, uio,
++	    (int)su.secsize);
+ }
+ 
+ static const struct bdevsw sweet_ufs_bdevsw = {
+@@ -604,8 +757,11 @@
+ static void
+ sweet_gpt_watch(__unused void *arg, __unused wait_result_t wr)
+ {
+-	const uint8_t *b = (const uint8_t *)(su.dma + DMA_BOUNCE);
++	/* Dedicated slot; this thread runs forever, so never free it. */
++	struct ufs_slot *slot = ufs_alloc_slot();
++	const uint8_t *b = slot_bounce(slot);
+ 	uint64_t start = mach_absolute_time();
++
+ 	for (;;) {
+ 		uint64_t deadline;
+ 		clock_interval_to_deadline(10, NSEC_PER_SEC, &deadline);
+@@ -614,23 +770,25 @@
+ 
+ 		uint32_t h = 0, e = 0, bh = 0;
+ 		bool ok;
+-		lck_mtx_lock(&sweet_ufs_lock);
+-		ok = ufs_read_blocks(1, 1) == 0 && memcmp(b, "EFI PART", 8) == 0;
++		ok = ufs_read_blocks_slot(slot, 1, 1) == 0 &&
++		    memcmp(b, "EFI PART", 8) == 0;
+ 		if (ok) {
+ 			memcpy(&h, b + 16, 4);
+ 			memcpy(&e, b + 88, 4);
+ 		}
+-		if (ok && gpt_bhcrc && ufs_read_blocks(gpt_alt, 1) == 0) {
++		if (ok && gpt_bhcrc && ufs_read_blocks_slot(slot, gpt_alt, 1) == 0) {
+ 			if (memcmp(b, "EFI PART", 8) == 0) {
+ 				memcpy(&bh, b + 16, 4);
+ 			}
+ 		}
+-		lck_mtx_unlock(&sweet_ufs_lock);
+-		if (!ok || h != gpt_hcrc || e != gpt_ecrc || (gpt_bhcrc && bh != gpt_bhcrc)) {
++		if (!ok || h != gpt_hcrc || e != gpt_ecrc ||
++		    (gpt_bhcrc && bh != gpt_bhcrc)) {
+ 			uint64_t ns;
+ 			absolutetime_to_nanoseconds(mach_absolute_time() - start, &ns);
+-			panic("SWEET UFS: GPT LUN0 CHANGED after %llu s: primary %s hcrc %#x/%#x ecrc %#x/%#x backup hcrc %#x/%#x",
+-			    ns / NSEC_PER_SEC, ok ? "present" : "MISSING", h, gpt_hcrc, e, gpt_ecrc, bh, gpt_bhcrc);
++			panic("SWEET UFS: GPT LUN0 CHANGED after %llu s: "
++			    "primary %s hcrc %#x/%#x ecrc %#x/%#x backup hcrc %#x/%#x",
++			    ns / NSEC_PER_SEC, ok ? "present" : "MISSING",
++			    h, gpt_hcrc, e, gpt_ecrc, bh, gpt_bhcrc);
+ 		}
+ 	}
+ }
+@@ -662,7 +820,7 @@
+ 	su.regs = ml_io_map(reg[0], reg[1]);
+ 	if (kmem_alloc_contig(kernel_map, &su.dma, DMA_SIZE, PAGE_MASK, 0, 0,
+ 	    KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
+-		printf("SWEET UFS: no contiguous DMA memory\n");
++		printf("SWEET UFS: no contiguous DMA memory (%u bytes)\n", DMA_SIZE);
+ 		return ENOMEM;
+ 	}
+ 	ppnum_t pn = pmap_find_phys(kernel_pmap, (addr64_t)su.dma);
+@@ -673,18 +831,23 @@
+ 	su.lun = 0;
+ 	su.secsize = DEV_BSIZE;
+ 
+-	lck_mtx_lock(&sweet_ufs_lock);
++	/* Allocate the slots with their indices filled in. */
++	for (int i = 0; i < UFS_MT_DEPTH; i++) {
++		su.slots[i].index = (uint32_t)i;
++		su.slots[i].busy = false;
++	}
++
++	/* Init is single-threaded; no lock needed around these operations. */
+ 	error = ufs_take_over_host();
+ 	if (!error) {
+ 		static const uint8_t tur[6] = { 0x00 };
+-		/* The first command after the bootloader may report a unit attention. */
++		/* The first command may report a unit attention. */
+ 		for (int i = 0; i < 3 && (error = ufs_scsi(tur, sizeof(tur), 0, false)); i++) {
+ 		}
+ 	}
+ 	if (!error) {
+ 		error = ufs_find_partition(want);
+ 	}
+-	lck_mtx_unlock(&sweet_ufs_lock);
+ 	if (error) {
+ 		return error;
+ 	}
+@@ -698,26 +861,25 @@
+ 		return ENXIO;
+ 	}
+ 	su.bdev = makedev(su.bmajor, 0);
+-	devfs_make_node(su.bdev, DEVFS_BLOCK, UID_ROOT, GID_OPERATOR, 0640, "ufsroot0");
+-	devfs_make_node(makedev(su.cmajor, 0), DEVFS_CHAR, UID_ROOT, GID_OPERATOR, 0640, "rufsroot0");
+-	/* Only now, with the partition bounds known, can writes be allowed. */
++	devfs_make_node(su.bdev, DEVFS_BLOCK, UID_ROOT, GID_OPERATOR, 0640,
++	    "ufsroot0");
++	devfs_make_node(makedev(su.cmajor, 0), DEVFS_CHAR, UID_ROOT, GID_OPERATOR,
++	    0640, "rufsroot0");
+ 	su.writable = (rw != 0);
+ 	su.ready = true;
+-	printf("SWEET UFS: \"%s\" on LUN %u: first block 0x%llx, %llu MiB, %s, DMA at 0x%llx\n",
++	printf("SWEET UFS: \"%s\" on LUN %u: first block 0x%llx, %llu MiB, %s, "
++	    "DMA at 0x%llx, %d slots (MT)\n",
+ 	    want, su.lun, su.first_block, su.nblocks * UFS_BLOCK >> 20,
+-	    su.writable ? "read-write" : "read-only", su.dma_pa);
++	    su.writable ? "read-write" : "read-only", su.dma_pa, UFS_MT_DEPTH);
++
+ 	sweet_log_start();
+ 	sweet_sample_start();
++
+ 	thread_t gpt_thread;
+ 	if (kernel_thread_start(sweet_gpt_watch, NULL, &gpt_thread) == KERN_SUCCESS) {
+ 		thread_deallocate(gpt_thread);
+ 	}
+-	/*
+-	 * Input drivers (HID services in iokit/Kernel/arm/hid/SweetHID.cpp).
+-	 * Touch (FT5452 on QUP0 SE2) and keys (PM6125 over SPMI) are ported to
+-	 * topaz; sweettouch=0 / sweetkeys=0 disable them. USB still pokes SM7150
+-	 * MMIO (DWC3 at 0xa600000), so it only runs with sweethw=1.
+-	 */
++
+ 	int hw = 0;
+ 	(void)PE_parse_boot_argn("sweethw", &hw, sizeof(hw));
+ 	sweet_touch_init();
+@@ -731,13 +893,9 @@
+ }
+ 
+ /*
+- * Persistent console log ("sweetlog"). Filming the phone screen is the only
+- * other way to see the console, so every character that reaches the
+- * console (kernel printf and /dev/console writes of daemons, both through
+- * _cnputs) is also kept in a 4 MiB ring, and once the partition is known
+- * and writable a thread copies new ring blocks to the LAST 4 MiB + 4 KiB of
+- * the partition every ufslogsecs seconds (default 10), far behind the HFS
+- * image at its start. Device block 0 of that area is a header:
++ * Persistent console log ("sweetlog"). Kept in a 4 MiB ring; a thread
++ * copies new ring blocks to the LAST 4 MiB + 4 KiB of the partition every
++ * ufslogsecs seconds (default 10). Device block 0 of that area is a header:
+  *   "SWEETLOG" | u32 version 1 | u32 ring size | u64 total bytes written
+  *   | u64 flush sequence
+  * ring offset of byte n = n % ring size. Read it from a recovery with
+@@ -752,7 +910,6 @@
+ static int sweet_log_chan;
+ static uint32_t sweet_log_secs = SWEET_LOG_SECS;
+ 
+-/* Called for all console output, any context: never blocks. */
+ void sweet_log_append(const char *c, int size);
+ 
+ void
+@@ -767,11 +924,6 @@
+ 	}
+ }
+ 
+-/*
+- * Copy console bytes [*pos, total) (at most max) for live log streaming
+- * (sweet_usb.c). A reader that fell more than the ring behind skips ahead.
+- * Returns the byte count; *pos advances.
+- */
+ uint32_t sweet_log_copy(uint64_t *pos, char *out, uint32_t max);
+ 
+ uint32_t
+@@ -808,45 +960,52 @@
+ {
+ 	uint64_t base = su.first_block + su.nblocks - SWEET_LOG_BLOCKS;
+ 	uint64_t flushed = 0, seq = 0;
+-	void *bounce = (void *)(su.dma + DMA_BOUNCE);
++	struct ufs_slot *slot = ufs_alloc_slot();
++	void *bounce = slot_bounce(slot);
+ 
+-	printf("SWEET LOG: console log to the last %u KiB of the partition (block 0x%llx)\n",
+-	    SWEET_LOG_BLOCKS * UFS_BLOCK >> 10, base);
++	printf("SWEET LOG: console log to the last %u KiB of the partition "
++	    "(block 0x%llx, slot %u)\n",
++	    SWEET_LOG_BLOCKS * UFS_BLOCK >> 10, base, slot->index);
+ 	for (;;) {
+-		(void)tsleep(&sweet_log_chan, PZERO, "sweetlog", hz * (int)sweet_log_secs);
++		(void)tsleep(&sweet_log_chan, PZERO, "sweetlog",
++		    hz * (int)sweet_log_secs);
+ 		uint64_t total = os_atomic_load(&sweet_log_total, relaxed);
+ 		if (total == flushed) {
+ 			continue;
+ 		}
+-		uint64_t pos = total - flushed >= SWEET_LOG_SIZE ? total - SWEET_LOG_SIZE : flushed;
++		uint64_t pos = total - flushed >= SWEET_LOG_SIZE ?
++		    total - SWEET_LOG_SIZE : flushed;
+ 		int error = 0;
+ 
+-		lck_mtx_lock(&sweet_ufs_lock);
+ 		while (pos < total && !error) {
+ 			uint32_t off = (uint32_t)(pos % SWEET_LOG_SIZE);
+ 			uint32_t blk = off / UFS_BLOCK;
+-			uint64_t need = ((uint64_t)off % UFS_BLOCK + (total - pos) + UFS_BLOCK - 1) / UFS_BLOCK;
+-			uint32_t n = (uint32_t)MIN(MIN(need, (uint64_t)(SWEET_LOG_SIZE / UFS_BLOCK - blk)),
++			uint64_t need = ((uint64_t)off % UFS_BLOCK +
++			    (total - pos) + UFS_BLOCK - 1) / UFS_BLOCK;
++			uint32_t n = (uint32_t)MIN(MIN(need,
++			    (uint64_t)(SWEET_LOG_SIZE / UFS_BLOCK - blk)),
+ 			    (uint64_t)(BOUNCE_SIZE / UFS_BLOCK));
+-			memcpy(bounce, sweet_log_ring + (uint64_t)blk * UFS_BLOCK, n * UFS_BLOCK);
+-			error = ufs_write_blocks(base + 1 + blk, n);
++			memcpy(bounce, sweet_log_ring + (uint64_t)blk * UFS_BLOCK,
++			    n * UFS_BLOCK);
++			error = ufs_write_blocks_slot(slot, base + 1 + blk, n);
+ 			pos += (uint64_t)(blk + n) * UFS_BLOCK - off;
+ 		}
+ 		if (!error) {
+ 			struct sweet_log_header h = {
+ 				.magic = { 'S', 'W', 'E', 'E', 'T', 'L', 'O', 'G' },
+-				.version = 1, .size = SWEET_LOG_SIZE, .total = total, .seq = ++seq,
++				.version = 1, .size = SWEET_LOG_SIZE,
++				.total = total, .seq = ++seq,
+ 			};
+ 			bzero(bounce, UFS_BLOCK);
+ 			memcpy(bounce, &h, sizeof(h));
+-			error = ufs_write_blocks(base, 1);
++			error = ufs_write_blocks_slot(slot, base, 1);
+ 		}
+ 		if (!error) {
+-			error = ufs_sync_cache();
++			error = ufs_sync_cache_slot(slot);
+ 		}
+-		lck_mtx_unlock(&sweet_ufs_lock);
+ 		if (error) {
+ 			printf("SWEET LOG: write failed (%d), stopping\n", error);
++			ufs_free_slot(slot);
+ 			return;
+ 		}
+ 		flushed = total;
