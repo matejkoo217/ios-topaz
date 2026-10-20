@@ -1,0 +1,21 @@
+fuxi: 0130 -- declare vsnprintf so RELEASE builds compile
+
+0121's panic note calls vsnprintf, which no kernel header declares: DEVELOPMENT builds
+accepted it through a different include path, RELEASE fails with "call to undeclared
+function 'vsnprintf'" and the build dies at debug.c:996.  Other kernel files (osfmk/tests)
+declare it inline for the same reason; do the same.
+
+This is what blocks any optimisation comparison that needs a RELEASE kernel.
+
+Harness: applied=129 skipped=0.
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -985,6 +985,8 @@
+ 	 */
+ 	{
+ 		extern void fuxi_log_panic_note(const char *text);
++		/* No kernel header declares this; RELEASE builds reject implicit decls. */
++		extern int vsnprintf(char *, size_t, const char *, va_list);
+ 		static bool fuxi_panic_note_busy;
+ 		va_list fuxi_copy;
+ 		char fuxi_msg[224];
