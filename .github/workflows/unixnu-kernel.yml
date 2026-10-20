@@ -55,10 +55,27 @@ jobs:
           echo "--- resolved config"
           grep -E 'UFS|ADRENO|LEGACY_DISPLAY' out/fuxi/.config || true
 
+      - name: Records-only pass
+        run: |
+          set -euo pipefail
+          cd unixnu
+          # A fresh tree has no compile records, and the archive builders need
+          # them. The bootstrap pass the harness runs for that purpose aborts at
+          # a silent `test -f` on archives that do not exist yet
+          # ($CRYPTO_ARCHIVE, pthread, mockfs), so it never compiles. Run one pass
+          # with those options off: it compiles and leaves startup.o.json behind,
+          # which is all the next step needs.
+          ./unixnu defconfig fuxi_defconfig_bootstrap -D "$GITHUB_WORKSPACE/unixnu-fuxi"
+          ./unixnu build kernel || echo "::warning::records-only pass failed (expected at link); continuing"
+          ls -la out/fuxi/tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/osfmk/DEVELOPMENT/startup.o.json || true
+
       - name: Build kernel
         run: |
           set -euo pipefail
           cd unixnu
+          # Real configuration: this pass builds the archives from the records of
+          # the pass above and links the kernel.
+          ./unixnu defconfig fuxi_defconfig -D "$GITHUB_WORKSPACE/unixnu-fuxi"
           ./unixnu build kernel 2>&1 | tee "out/fuxi/kernel-build.log"
 
       - name: Collect artifacts
