@@ -13,6 +13,15 @@ require_archive() {
   echo "missing archive: $1" >&2
   return 1
 }
+
+# Records-only pass: keep going past the link that needs the archives which do
+# not exist yet. The pass only has to leave the compile records behind
+# (osfmk/.../startup.o.json); its exit status may stay non-zero, which the
+# harness tolerates once the record exists.
+if [ "${XNU_BOOT_PROGRESS:-1}" = 0 ]; then
+  MAKEFLAGS="${MAKEFLAGS:-} -k"
+  export MAKEFLAGS
+fi
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 # Source versions come from feeds.toml through the unixnu driver; the defaults are the qualified ones.
