@@ -1,0 +1,52 @@
+fuxi: 0120 -- name the halt/restart, and make the fb command visible
+
+Something resets this phone 30-90 s into every boot with no panic in the ring.  The
+one path that reboots without a panic is PEHaltRestartInternal(): it asks IOKit PM
+clients to shut down, waits kShutdownTimeout (30 s) and then panics with
+"Halt/Restart Timed Out" -- which matches the observed lag exactly.  It now logs the
+type, the details and its callers, and the timeout callback says so before panicking.
+
+Also prints "FUXI FB: cmd fb scale N" when a capture is requested, so the live stream
+proves whether the command reached the kernel at all.  The screen grab has produced no
+frames and no log line; without this print there is no way to tell a lost command from
+a failed capture.
+
+Diagnostic only.
+
+Harness: applied=119 skipped=0.
+--- a/iokit/Kernel/IOPlatformExpert.cpp
++++ b/iokit/Kernel/IOPlatformExpert.cpp
+@@ -881,6 +881,7 @@
+ {
+ #if !defined(__x86_64__)
+ 	/* 30 seconds has elapsed - panic */
++	IOLog("FUXI HALT: shutdown notifications never came back, panicking\n");
+ 	panic("Halt/Restart Timed Out");
+ 
+ #else /* !defined(__x86_64__) */
+@@ -985,6 +986,15 @@
+ PEHaltRestartInternal(unsigned int type, uint32_t details)
+ {
+ 	IOPMrootDomain    *pmRootDomain;
++
++	/*
++	 * Something resets this phone 30-90 s into every boot without a panic in the
++	 * ring, and this is the only path that reboots without one: it asks IOKit PM
++	 * clients to shut down, waits kShutdownTimeout (30 s), then panics.  Naming
++	 * the request and its caller is the difference between a theory and a fact.
++	 */
++	IOLog("FUXI HALT: type %u details 0x%x caller %p <- %p\n", type, details,
++	    __builtin_return_address(0), __builtin_return_address(1));
+ 	AbsoluteTime      deadline;
+ 	thread_call_t     shutdown_hang;
+ 	IORegistryEntry   *node;
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -599,6 +599,7 @@
+ 				scale = scale * 10u + (uint32_t)(*q - '0');
+ 			}
+ 		}
++		printf("FUXI FB: cmd fb scale %u\n", scale);
+ 		if (fuxi_fb_kick(scale) == 0) {
+ 			ud_cmd_send("fb: started\n", 12);
+ 		} else {
