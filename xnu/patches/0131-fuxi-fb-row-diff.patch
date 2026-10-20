@@ -14,7 +14,7 @@ DMA, so every written row has to reach DRAM.
 Harness: applied=130 skipped=0.
 --- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
 +++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
-@@ -676,20 +676,31 @@
+@@ -676,20 +676,30 @@
  			src = 0;
  		}
  		if (src != 0 && bpe == 4) {
@@ -54,7 +54,6 @@ Harness: applied=130 skipped=0.
 +				memcpy(dst, row, (size_t)w * 4);
 +				flush_dcache64((addr64_t)dst, (unsigned)((size_t)w * 4), FALSE);
 +			}
-+		}
  		}
  		s->release();
  	}
