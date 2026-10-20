@@ -1,0 +1,65 @@
+fuxi: 0118 -- the ring records the panic text, so a self-reset keeps its cause
+
+The last boot proved the new panic path works: it panicked, reset itself over PSCI,
+and came back to recovery with no hands involved.  But the ring it left behind ended
+at "exec coreidvd" -- console output during panic never reaches the ring buffer, so
+the one record that survives the reset did not say what killed the boot.
+
+panic() already has the formatted message in debug_buf_base.  debug.c now hands it
+to fuxi_log_panic_note(), which appends "*** FUXI PANIC: <text>" to the ring before
+the flush, so the next crash explains itself in the same 16 KiB that survives.
+
+Harness: applied=117 skipped=0.
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
+@@ -1156,6 +1156,30 @@
+  */
+ void fuxi_log_flush_panic(void);
+ 
++/*
++ * Put the panic text into the ring before flushing it.
++ *
++ * The panic message is printed to the console, but console output during panic
++ * never reaches the ring buffer: the last boot panicked, reset itself correctly,
++ * and the ring still ended at "exec coreidvd" with no cause in it.  debug.c calls
++ * this with the formatted panic string (debug_buf_base) so the one record that
++ * survives a reset actually says why it happened.
++ */
++void
++fuxi_log_panic_note(const char *text)
++{
++	char line[512];
++	int n;
++
++	if (text == NULL || text[0] < ' ' || text[0] > '~') {
++		return;
++	}
++	n = snprintf(line, sizeof(line), "\n*** FUXI PANIC: %.400s\n", text);
++	if (n > 0) {
++		fuxi_log_append(line, n < (int)sizeof(line) ? n : (int)sizeof(line) - 1);
++	}
++}
++
+ void
+ fuxi_log_flush_panic(void)
+ {
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1461,7 +1461,17 @@
+ 	 */
+ 	{
+ 		extern void fuxi_log_flush_panic(void);
++		extern void fuxi_log_panic_note(const char *text);
++		extern char *debug_buf_base;
+ 		extern void fuxi_panic_reset(void);
++
++		/*
++		 * The formatted message is already in debug_buf_base; console output
++		 * does not reach the ring during panic, so hand it over explicitly.
++		 */
++		if (debug_buf_base != NULL) {
++			fuxi_log_panic_note(debug_buf_base);
++		}
+ 		fuxi_log_flush_panic();          /* ring first: it is the only record */
+ 		fuxi_panic_reset();              /* then come back up by ourselves */
+ 	}
