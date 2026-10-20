@@ -1,0 +1,52 @@
+fuxi: 0121 -- catch the panic at its entry, with the caller
+
+The ring header proves panics happen here (flush seq 0xffffffff) while the ring content
+keeps ending mid-userspace with no cause in it: the tee in debugger_collect_diagnostics
+only fires on branches this board does not reliably take, and the note attempts failed
+because the buffers they guessed at hold nothing useful at that point.
+
+panic() itself is the one place every panic passes through, with the format string and
+the arguments in hand.  It now formats the message there (va_copy, so the real panic
+path is unaffected), records "*** FUXI PANIC: caller 0x...: <message>" in the ring, and
+guards against a nested panic re-entering the formatter.
+
+The caller address resolves against the kernel binary this build produces, so the
+surviving record names both the failure and the function that raised it.
+
+Harness: applied=120 skipped=0.
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -973,6 +973,33 @@
+ 	va_list panic_str_args;
+ 
+ 	va_start(panic_str_args, str);
++	/*
++	 * Record the panic before anything else can go wrong.
++	 *
++	 * The tee in debugger_collect_diagnostics only fires on branches this board does
++	 * not reliably take, and the ring header proves panics happen (flush seq
++	 * 0xffffffff) while the ring itself keeps ending mid-userspace with no cause in
++	 * it.  Formatting here -- at the entry every panic goes through -- with the
++	 * caller address, makes the surviving record name both the failure and who
++	 * raised it, and 0x... resolves against the kernel binary this build produces.
++	 */
++	{
++		extern void fuxi_log_panic_note(const char *text);
++		static bool fuxi_panic_note_busy;
++		va_list fuxi_copy;
++		char fuxi_msg[224];
++		char fuxi_full[300];
++
++		if (!fuxi_panic_note_busy) {
++			fuxi_panic_note_busy = true;
++			va_copy(fuxi_copy, panic_str_args);
++			vsnprintf(fuxi_msg, sizeof(fuxi_msg), str, fuxi_copy);
++			va_end(fuxi_copy);
++			snprintf(fuxi_full, sizeof(fuxi_full), "caller %p: %s",
++			    __builtin_return_address(0), fuxi_msg);
++			fuxi_log_panic_note(fuxi_full);
++		}
++	}
+ 	panic_trap_to_debugger(str, &panic_str_args, 0, NULL, 0, NULL, (unsigned long)(char *)__builtin_return_address(0));
+ 	va_end(panic_str_args);
+ }
