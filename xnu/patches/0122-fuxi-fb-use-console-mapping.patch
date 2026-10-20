@@ -1,0 +1,61 @@
+fuxi: 0122 -- read the panel through the console's mapping, not a second one
+
+The capture took the phone down the moment 'fb' was issued, twice, with nothing in the
+ring: fbcon_probe() maps the panel once with ml_io_map_wcomb(), and the grab mapped the
+same physical range again with plain ml_io_map() -- a cacheable mapping of device memory.
+Reading that faults, and the fault lands in a kernel thread where the panic path cannot
+record anything.
+
+fuxi_fbcon_va() hands out the mapping the console already uses, so there is exactly one
+mapping per panel and it is the one that has been working all along.
+
+Harness: applied=121 skipped=0.
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -816,6 +816,20 @@
+  * probes the "sweet-fbcon" node for reg/width/height/stride; expose what it found
+  * rather than re-parsing the device tree from bsd/dev, which cannot see SecureDT.
+  */
++/*
++ * The console's own mapping of the panel.
++ *
++ * fbcon_probe() maps it once, with ml_io_map_wcomb().  A second mapping of the same
++ * physical range with plain ml_io_map() is a cacheable mapping of device memory, and
++ * reading it faults -- which is exactly what killed the phone the moment 'fb' was
++ * issued, twice, with no panic recorded.  Hand out the mapping that already works.
++ */
++void *
++fuxi_fbcon_va(void)
++{
++	return (void *)fbcon_base;
++}
++
+ bool
+ fuxi_fbcon_info(uint64_t *pa, uint64_t *len, uint32_t *w, uint32_t *h, uint32_t *stride)
+ {
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -1106,6 +1106,7 @@
+ 
+ extern bool fuxi_fbcon_info(uint64_t *pa, uint64_t *len, uint32_t *w, uint32_t *h,
+     uint32_t *stride);
++extern void *fuxi_fbcon_va(void);       /* the console's own panel mapping */
+ 
+ struct fuxi_fb_hdr {
+ 	char     magic[8];
+@@ -1138,9 +1139,13 @@
+ 		printf("FUXI FB: no framebuffer (sweet-fbcon not probed)\n");
+ 		return false;
+ 	}
+-	fuxi_fb_base = (volatile uint32_t *)ml_io_map((vm_offset_t)pa, (vm_size_t)len);
++	/*
++	 * Read through the console's mapping.  Mapping the PA again as normal memory is
++	 * what used to take the phone down the instant a grab was requested.
++	 */
++	fuxi_fb_base = (volatile uint32_t *)fuxi_fbcon_va();
+ 	if (fuxi_fb_base == NULL) {
+-		printf("FUXI FB: map failed for 0x%llx\n", pa);
++		printf("FUXI FB: console mapping not available (0x%llx)\n", pa);
+ 		return false;
+ 	}
+ 	printf("FUXI FB: %ux%u stride %u at 0x%llx\n", fuxi_fb_w, fuxi_fb_h,
