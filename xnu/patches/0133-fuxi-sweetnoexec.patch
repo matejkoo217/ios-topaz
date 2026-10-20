@@ -14,7 +14,44 @@ Off unless the boot arg is given.
 Harness: applied=131 skipped=0.
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7412,6 +7412,29 @@
+@@ -7325,6 +7325,36 @@
+ 	return error;
+ }
+ 
++/*
++ * Match a program name against a comma-separated deny list.
++ *
++ * Plain pointer arithmetic on purpose: libkern.h here does not declare strstr, and an
++ * implicit declaration is a hard error under this build's flags.
++ */
++static int
++fuxi_exec_denied(const char *name, const char *list)
++{
++	const char *p = list;
++
++	while (*p != '\0') {
++		const char *n = name;
++		const char *q = p;
++
++		while (*q != '\0' && *q != ',' && *q == *n) {
++			q++;
++			n++;
++		}
++		if ((*q == '\0' || *q == ',') && *n == '\0') {
++			return 1;
++		}
++		while (*q != '\0' && *q != ',') {
++			q++;
++		}
++		p = (*q == ',') ? q + 1 : q;
++	}
++	return 0;
++}
++
+ static int
+ process_signature(proc_t p, struct image_params *imgp)
+ {
+@@ -7412,6 +7442,29 @@
  				goto done;
  			}
  #if defined(ARM64_BOARD_CONFIG_FUXI)
@@ -30,7 +67,7 @@ Harness: applied=131 skipped=0.
 +				char deny[160] = "";
 +
 +				if (PE_parse_boot_argn("sweetnoexec", deny, sizeof(deny)) &&
-+				    deny[0] != '\0' && strstr(deny, p->p_name) != NULL) {
++				    deny[0] != '\0' && fuxi_exec_denied(p->p_name, deny)) {
 +					/*
 +					 * Stub, do not refuse: a refused exec sends launchd into a
 +					 * retry loop, while a stopped process looks alive, never
