@@ -13,11 +13,25 @@ WAIT=${2:-60}
 IFACE=${FUXI_IFACE:-enx02005e77ee01}
 LOG=${FUXI_LOG:-/tmp/fuxi/last-boot.txt}
 SHOT=${FUXI_SHOT:-/tmp/fuxi/last-screen.png}
+RING=${FUXI_RING:-/tmp/fuxi/last-ring.txt}
 SUDO="sudo -S"
 
 mkdir -p "$(dirname "$LOG")" "$(dirname "$SHOT")"
 
 say() { printf '%s\n' "$*"; }
+
+# --- 0. if the previous boot died, the ring still holds its last flush -------
+# A hung kernel stops flushing, so the tail of the ring is the closest thing to a
+# death certificate we get. Pull it *before* leaving recovery.
+if adb devices | grep -qE "recovery"; then
+	say "[0/5] pulling the previous boot's console ring"
+	adb root >/dev/null 2>&1; sleep 1
+	if timeout 90 bash "$(dirname "$0")/fuxi-log-pull.sh" "$RING" >/dev/null 2>&1; then
+		say "      ring -> $RING ($(wc -c < "$RING" 2>/dev/null || echo 0) bytes)"
+	else
+		say "      ring pull failed (continuing)"
+	fi
+fi
 
 # --- 1. get to fastboot, from wherever the phone is -------------------------
 if timeout 5 fastboot devices | grep -q .; then
