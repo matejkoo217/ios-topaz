@@ -55,27 +55,55 @@ jobs:
           echo "--- resolved config"
           grep -E 'UFS|ADRENO|LEGACY_DISPLAY' out/fuxi/.config || true
 
-      - name: Records-only pass
+      - name: Seed placeholder archives
         run: |
           set -euo pipefail
-          cd unixnu
-          # A fresh tree has no compile records, and the archive builders need
-          # them. The bootstrap pass the harness runs for that purpose aborts at
-          # a silent `test -f` on archives that do not exist yet
-          # ($CRYPTO_ARCHIVE, pthread, mockfs), so it never compiles. Run one pass
-          # with those options off: it compiles and leaves startup.o.json behind,
-          # which is all the next step needs.
-          ./unixnu defconfig fuxi_defconfig_bootstrap -D "$GITHUB_WORKSPACE/unixnu-fuxi"
-          ./unixnu build kernel || echo "::warning::records-only pass failed (expected at link); continuing"
-          ls -la out/fuxi/tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/osfmk/DEVELOPMENT/startup.o.json || true
+          # build-xnu-4k-baseline.sh guards every optional archive with a bare
+          # `test -f`, and the script runs under `set -e`: on a fresh tree the
+          # bootstrap pass therefore exits silently before it compiles anything,
+          # so the compile records the archive builders need are never written
+          # and the harness raises. The harness's own comment says that pass is
+          # meant to "stop at the link" instead.
+          #
+          # Seeding empty (valid) archives satisfies the guards without inventing
+          # content: the pass compiles, fails at the link, leaves the records,
+          # and the harness then builds the real archives and links again.
+          TREE=unixnu/out/fuxi/tree
+          cd "$TREE"
+          for a in \
+            build/adreno-firmware-probe/libAdrenoFirmwareProbe.a \
+            build/adreno-pm4-probe/libAdrenoPM4Probe.a \
+            build/armcpu/libArmCpu.a \
+            build/armdt-platform/libArmDTPlatform.a \
+            build/armvirt-platform/libArmVirtPlatform.a \
+            build/boot-progress/libBootProgress.a \
+            build/constant-uploads-probe/libConstantUploadsProbe.a \
+            build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a \
+            build/libpthread-kernel/libpthread_kernel.a \
+            build/mockfs-fixture/libmockfs_fixture.a \
+            build/native-adreno/libNativeAdreno.a \
+            build/native-aes/libNativeAES.a \
+            build/native-legacy-display/libNativeLegacyDisplay.late.a \
+            build/native-mobile-display/libNativeMobileDisplay.late.a \
+            build/native-offline-gpu/libNativeOfflineGPU.late.a \
+            build/native-ram-block/libNativeRamBlock.a \
+            build/native-ufs/libNativeUfs.a \
+            build/native-virtio-block/libNativeVirtioBlock.a \
+            build/native-virtio-console/libNativeVirtioConsole.a \
+            build/verified-root-xnu/libVerifiedRootProbe.a \
+          ; do
+            mkdir -p "$(dirname "$a")"
+            [ -f "$a" ] || ar crs "$a"
+          done
+          # Object-file guards need a file, not an archive.
+          : > build/libpthread-kernel/source_pthread_bootstrap.o
+          ar rcs build/native-ram-block/NativeRamBlock.o.tmp && mv build/native-ram-block/NativeRamBlock.o.tmp build/native-ram-block/NativeRamBlock.o
+          echo "seeded $(find build -name '*.a' -newer "$TREE/board.toml" 2>/dev/null | wc -l) archives"
 
       - name: Build kernel
         run: |
           set -euo pipefail
           cd unixnu
-          # Real configuration: this pass builds the archives from the records of
-          # the pass above and links the kernel.
-          ./unixnu defconfig fuxi_defconfig -D "$GITHUB_WORKSPACE/unixnu-fuxi"
           ./unixnu build kernel 2>&1 | tee "out/fuxi/kernel-build.log"
 
       - name: Collect artifacts
