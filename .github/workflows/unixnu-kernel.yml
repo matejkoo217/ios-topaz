@@ -55,55 +55,10 @@ jobs:
           echo "--- resolved config"
           grep -E 'UFS|ADRENO|LEGACY_DISPLAY' out/fuxi/.config || true
 
-      - name: Seed placeholder archives
-        run: |
-          set -euo pipefail
-          # build-xnu-4k-baseline.sh guards every optional archive with a bare
-          # `test -f`, and the script runs under `set -e`: on a fresh tree the
-          # bootstrap pass therefore exits silently before it compiles anything,
-          # so the compile records the archive builders need are never written
-          # and the harness raises. The harness's own comment says that pass is
-          # meant to "stop at the link" instead.
-          #
-          # Seeding empty (valid) archives satisfies the guards without inventing
-          # content: the pass compiles, fails at the link, leaves the records,
-          # and the harness then builds the real archives and links again.
-          TREE=unixnu/out/fuxi/tree
-          cd "$TREE"
-          # llvm-ar refuses an archive with no members, so seed each one with a
-          # single empty object: valid to ld, no symbols.
-          printf '' > /tmp/empty.c
-          xcrun clang -c -x c /tmp/empty.c -o /tmp/empty.o
-          for a in \
-            build/adreno-firmware-probe/libAdrenoFirmwareProbe.a \
-            build/adreno-pm4-probe/libAdrenoPM4Probe.a \
-            build/armcpu/libArmCpu.a \
-            build/armdt-platform/libArmDTPlatform.a \
-            build/armvirt-platform/libArmVirtPlatform.a \
-            build/boot-progress/libBootProgress.a \
-            build/constant-uploads-probe/libConstantUploadsProbe.a \
-            build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a \
-            build/libpthread-kernel/libpthread_kernel.a \
-            build/mockfs-fixture/libmockfs_fixture.a \
-            build/native-adreno/libNativeAdreno.a \
-            build/native-aes/libNativeAES.a \
-            build/native-legacy-display/libNativeLegacyDisplay.late.a \
-            build/native-mobile-display/libNativeMobileDisplay.late.a \
-            build/native-offline-gpu/libNativeOfflineGPU.late.a \
-            build/native-ram-block/libNativeRamBlock.a \
-            build/native-ufs/libNativeUfs.a \
-            build/native-virtio-block/libNativeVirtioBlock.a \
-            build/native-virtio-console/libNativeVirtioConsole.a \
-            build/verified-root-xnu/libVerifiedRootProbe.a \
-          ; do
-            mkdir -p "$(dirname "$a")"
-            [ -f "$a" ] || ar crs "$a" /tmp/empty.o
-          done
-          # Object-file guards need a file, not an archive.
-          cp /tmp/empty.o build/libpthread-kernel/source_pthread_bootstrap.o
-          cp /tmp/empty.o build/native-ram-block/NativeRamBlock.o
-          echo "seeded: $(ls -1 build/*/lib*.a 2>/dev/null | wc -l) archives"
-
+      # No seeding step: unixnu-fuxi/scripts/build-xnu-4k-baseline.sh overrides the
+      # base script (device repositories override modules of the same name) and
+      # turns its bare `test -f` archive guards into require_archive, which the
+      # bootstrap pass satisfies while XNU_BOOT_PROGRESS=0.
       - name: Build kernel
         run: |
           set -euo pipefail
