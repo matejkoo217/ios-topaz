@@ -1,0 +1,34 @@
+fuxi: 0128 -- stop the trace from slowing the boot it measures
+
+0126 added a per-layer print gated on fuxi_fb_path_logged <= 6, but that counter stops
+advancing at 6 (the increment sits behind a < 6 test), so the condition stayed true and
+every present printed twice -- 205 of 242 log lines in 22 s, each one formatting,
+writing the console and shipping over USB.  The compositor was spending its time talking
+about frames instead of drawing them.
+
+The per-layer print is gone and the path print is bounded on its own counter.  Measured
+effect on boot progress should be immediate and large; the boot was at 20% after 165 s
+with the storm in place.
+
+Harness: applied=127 skipped=0.
+--- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
++++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
+@@ -542,6 +542,7 @@
+ 			fuxi_fb_path_logged++;
+ 			IOLog("FUXI FB: present via MDP (direct) swap %u\n", get32(rec, 0x50));
+ 		}
++		/* Path logging must stay bounded: see 0128. */
+ 		if (!fConsolePaused) {
+ 			int quiet = 0;
+ 			fConsolePaused = true;
+@@ -597,10 +598,6 @@
+ 			continue;
+ 		}
+ 		uintptr_t src = s->kernelAddress();
+-		if (fuxi_fb_path_logged <= 6) {
+-			IOLog("FUXI FB: copy layer %u surface %u %ux%u bpr %u src %p\n",
+-			    layer, id, s->width, s->height, s->bytesPerRow, (void *)src);
+-		}
+ 		uint32_t bpe = s->bytesPerElement ? s->bytesPerElement : 4;
+ 		if (w <= 0 || h <= 0) {
+ 			w = (int32_t)s->width;
