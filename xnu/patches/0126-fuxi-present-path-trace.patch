@@ -1,0 +1,58 @@
+fuxi: 0126 -- say which present path runs, and what the copy moves
+
+Two grabs 20 s apart differ by 21 of 162000 pixels while the compositor reports 9000
+swaps, and forcing the copy path (sweetfb_copy=1) did not change what the panel shows.
+Either the copy path does not run, or the panel scans a buffer the capture is not reading
+-- and those need opposite fixes, so guess is worse than instrument.
+
+The first six presents now report whether they went through directPresent() or the CPU
+copy, and every copy names the surface, its geometry and the source pointer.
+
+Diagnostic only.
+
+Harness: applied=125 skipped=0.
+--- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
++++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
+@@ -136,6 +136,8 @@
+ 
+ OSDefineMetaClassAndStructors(AppleCLCD, IOMobileFramebuffer);
+ 
++static uint32_t fuxi_fb_path_logged;
++
+ class IOMobileFramebufferUserClient : public IOUserClient {
+ 	OSDeclareDefaultStructors(IOMobileFramebufferUserClient);
+ 
+@@ -536,6 +538,10 @@
+ 		}
+ 	}
+ 	if (directPresent(rec)) {
++		if (fuxi_fb_path_logged < 6) {
++			fuxi_fb_path_logged++;
++			IOLog("FUXI FB: present via MDP (direct) swap %u\n", get32(rec, 0x50));
++		}
+ 		if (!fConsolePaused) {
+ 			int quiet = 0;
+ 			fConsolePaused = true;
+@@ -546,6 +552,11 @@
+ 		return;
+ 	}
+ copy_path:
++	if (fuxi_fb_path_logged < 6) {
++		fuxi_fb_path_logged++;
++		IOLog("FUXI FB: present via CPU copy swap %u, boot fb 0x%llx stride %u\n",
++		    get32(rec, 0x50), (uint64_t)fPhys, fRowBytes);
++	}
+ 	/* copy path: make sure the MDP shows the boot framebuffer we copy into */
+ 	if (fVig0 != NULL && fScanPhys != fBootSrc) {
+ 		scanFrom(fBootSrc, fBootStride);
+@@ -586,6 +597,10 @@
+ 			continue;
+ 		}
+ 		uintptr_t src = s->kernelAddress();
++		if (fuxi_fb_path_logged <= 6) {
++			IOLog("FUXI FB: copy layer %u surface %u %ux%u bpr %u src %p\n",
++			    layer, id, s->width, s->height, s->bytesPerRow, (void *)src);
++		}
+ 		uint32_t bpe = s->bytesPerElement ? s->bytesPerElement : 4;
+ 		if (w <= 0 || h <= 0) {
+ 			w = (int32_t)s->width;
