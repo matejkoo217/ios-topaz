@@ -1,0 +1,132 @@
+# Board description of the Xiaomi 13 (fuxi, SM8550), read by the unixnu build driver.
+#
+# Shape and values follow UniXNU-sheng's board.toml (the reference SM8550 port)
+# and the documented schema:
+#   https://unixnu.com/porting/device-repository
+#   https://unixnu.com/devices/sheng
+# Anything fuxi-specific is marked FUXI with the observation it came from.
+
+[board]
+name = "fuxi"
+soc = "SM8550"
+description = "Xiaomi 13"
+kit = "fuxi"                       # package/ of this repository appears as kits/fuxi in the build tree
+
+# The target OS image. sheng's identity is reused unchanged: UniXNU's kernel,
+# prelink roots and trust-cache acceptance are built around this restore image,
+# so a different IPSW is a different port, not a setting.
+[ipsw]
+url = "https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw"
+product = "iPad7,1"
+version = "17.7.11"
+build = "21H461"
+device_class = "j120ap"
+chip_id = 0x8011
+board_id = 12
+fetch = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustCache"]
+
+[ipsw.sha256]
+"044-76040-038.dmg" = "3f99b859c9728379110b66657c7b15285bcb1925ad8b5726542e2cdcf8b1028d"
+"044-76034-038.dmg" = "b4908cde41d23e6bc05e6af51a2c9eeb00cf0f863a6a18b1600c96a3fd70414f"
+
+# FUXI: GPT entry "userdata" of LUN 0, read from the device itself
+# (ios-fuxi/backups/sda_partition_map.txt: "userdata 4945984 61850618
+# 233081384960 222283.73"), i.e. 233.08 GB in 4096-byte blocks.
+[userdata]
+first_lba = 0x4b7840
+last_lba = 0x3afc3fa
+lba_bytes = 4096
+windows = [
+  { name = "OS", component = "OS" },
+  { name = "SystemOS", component = "Cryptex1,SystemOS" },
+]
+
+[kernel]
+defconfig = "fuxi_defconfig"
+# Archive builders of the kernel step, in order. First hardware run: storage and
+# core only. The Adreno, legacy-display and boot-progress builders are held back
+# until the GPU firmware question (SQE revision, ZAP format) is settled.
+archives = [
+  "build-corecrypto-14.py",
+  "build-corecrypto-14.py --namespace",
+  "build-arm-driver.py ArmDTPlatform",
+  "build-arm-driver.py ArmCpu",
+  "build-arm-driver.py NativeAES",
+  "build-native-aes-bindings.py",
+  "build-arm-driver.py NativeUfs",
+  "build-arm-driver.py NativeVirtioBlock",
+  "build-arm-driver.py NativeRamBlock",
+  "build-native-virtio-bindings.py --component NativeRamBlock --directory build/native-ram-block",
+  "build-native-virtio-bindings.py --component NativeVirtioBlock",
+  "build-mockfs-fixture.py",
+  "build-libpthread-kernel.py",
+]
+
+# No [kernel.prelink] yet: it needs a built fuxi kernel and a kernelcache pin.
+# Add it when the kernel step runs on this stack.
+
+[firmware]
+config = "fuxi"                    # Resources/Configs/fuxi.toml in the Mu-Silicium checkout (--uefi)
+dsc = "Platforms/Xiaomi/fuxiPkg/fuxi.dsc"
+fd = "Build/fuxiPkg/{target}_CLANGPDB/FV/SILICIUM_UEFI.fd"
+preflight = ["scripts/check-fuxi.py"]
+submodules = ["Common/Mu", "Common/Mu_OEM_Sample", "Silicium-ACPI", "Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl"]
+patches = ["Resources/MuPatches/Gic-Spurious.patch"]
+packages = [
+  "{uefi}",
+  "{uefi}/Platforms/Xiaomi",
+  "{tree}/package",
+  "{tree}/drivers/DarwinBoot",
+  "{edk2}",
+  "{uefi}/Common/Mu",
+  "{uefi}/Common/Mu_OEM_Sample",
+  "{uefi}/Silicon/Qualcomm",
+  "{uefi}/Silicon/Silicium",
+  "{uefi}/Silicium-ACPI",
+  "{uefi}/Silicium-ACPI/Platforms/Xiaomi",
+  "{uefi}/Silicium-ACPI/Silicon/Qualcomm",
+]
+
+[firmware.defines]
+ENABLE_SECUREBOOT = "1"
+DEVICE_MODEL = "fuxi"
+MEMORY_PROTECTION = "TRUE"
+SHIP_MODE = "FALSE"
+BUILDID_STRING = "fuxi-research"
+
+# The ramdisk of the boot image: a FAT volume holding the UniXNU configuration,
+# the kernel, its device tree and the optional trust cache and Data seed.
+[payload]
+volume = "FUXIESP"
+size_mib = 192
+loader = "firmware"
+title = "fuxi first boot: firmware to menu"
+# FUXI: SMEM RAM table has two banks - 2 GiB at 0x80000000 and 6 GiB at
+# 0x880000000 on this 8 GB unit. dram_size is the window from the base, so it
+# must stay inside the first bank and not cross the hole at 0x100000000.
+dram_size = "0x80000000"
+panic_screen = true
+kernel_args = [
+  "-v",
+  "serial=3",
+]
+# No trust_cache_sha256 yet: fuxi has not had a trust cache accepted.
+
+[payload.adt]
+tool = "scripts/make-fuxi-adt.py"
+chip_id = "208"                    # FUXI: stable nonzero seed for IOPlatformUUID, not an Apple ID
+owned_memory_size = "0x20000000"   # FUXI: 512 MiB, inside the 2 GiB first bank
+cpu_regs = "0,0x100,0x200,0x300,0x400,0x500,0x600,0x700"
+psci_method = "smc"
+ipad_identity = true
+unique_chip_id = "required"        # the platform seed is not stored in any repository
+# root_match_volume_uuid is absent: there is no APFS root on fuxi yet.
+
+# The stock ABL powers the panel off when the device tree has no splash region,
+# so the driver adds it. Same window as sheng (0xb8000000, 0x2b00000).
+[[bootimg.dtb_node]]
+path = "/reserved-memory/splash_region"
+props = [
+  { name = "label", type = "s", value = "cont_splash_region" },
+  { name = "reg", type = "x", value = ["0x0", "0xb8000000", "0x0", "0x2b00000"] },
+]

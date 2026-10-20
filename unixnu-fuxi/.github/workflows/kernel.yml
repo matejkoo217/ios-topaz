@@ -1,0 +1,101 @@
+name: kernel
+
+# UniXNU's kernel step needs Xcode; GitHub's macOS runners ship Xcode 16, which
+# is the SDK level these sources expect. Ventura + Xcode 15.2 fails on
+# -mach_msg2 (MIG) and on IORPCMessageFromMach (DriverKit), both SDK skew.
+#
+# This workflow lives in the *device* repository (this one). It clones the
+# UniXNU umbrella beside it, because the build driver resolves the device
+# repository with -D and the umbrella must own its own submodules.
+#
+# Not pushed anywhere yet - it is staged here until the owning repository is
+# chosen.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'board.toml'
+      - 'configs/**'
+      - 'scripts/**'
+      - '.github/workflows/kernel.yml'
+
+jobs:
+  kernel:
+    runs-on: macos-14          # Xcode 16; macos-13 still carries Xcode 15.x
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out the device repository
+        uses: actions/checkout@v4
+        with:
+          path: dev
+
+      - name: Select Xcode 16
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_16.app
+          xcodebuild -version
+          # Fails the job early if the image does not carry the expected SDK,
+          # which is the whole reason this workflow exists.
+          xcodebuild -version | grep -q 'Xcode 16' || {
+            echo '::error::This runner is not on Xcode 16; the kernel build will hit SDK skew.'
+            exit 1
+          }
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'   # the driver imports tomllib (3.11+)
+
+      - name: cmake and ninja
+        run: |
+          set -euo pipefail
+          brew install cmake ninja
+          cmake --version | head -1
+          ninja --version
+
+      - name: Clone the UniXNU umbrella
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --recurse-submodules --shallow-submodules \
+            https://github.com/UniXNU/UniXNU.git umbrella
+
+      - name: Configure the fuxi board
+        working-directory: umbrella
+        run: |
+          set -euo pipefail
+          ./unixnu defconfig fuxi_defconfig -D ../dev
+          ./unixnu status
+
+      - name: Fetch feeds (xnu, libplatform, libdispatch, corecrypto, edk2)
+        working-directory: umbrella
+        run: ./unixnu fetch
+
+      - name: Assemble the build tree
+        working-directory: umbrella
+        run: ./unixnu tree
+
+      - name: Build the kernel
+        working-directory: umbrella
+        run: ./unixnu build kernel
+
+      - name: Collect what is left on failure
+        if: failure()
+        run: |
+          set +e
+          echo '--- kernel logs'
+          find umbrella/out -name '*.log' -maxdepth 4 -exec sh -c 'echo "== $1"; tail -120 "$1"' _ {} \;
+          echo '--- bootstrap log'
+          tail -200 umbrella/out/*/logs/kernel-bootstrap.log 2>/dev/null
+
+      - name: Upload the kernel
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuxi-kernel
+          if-no-files-found: error
+          path: |
+            umbrella/build/xnu/ios-obj/**/mach.development.*
+            umbrella/out/*/kernel/**
+          retention-days: 14

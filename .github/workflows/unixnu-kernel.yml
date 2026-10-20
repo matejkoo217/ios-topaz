@@ -1,0 +1,83 @@
+name: unixnu-fuxi kernel
+
+# Builds the fuxi XNU kernel with the UniXNU harness on a macOS runner.
+#
+# Why here: the harness needs Xcode (iig, SDK); this host has 15.2 which is too
+# old for xnu-10063, and the Mac upgrade is deferred. macos-14 images carry
+# Xcode 16, which is the version UniXNU targets.
+#
+# The device repository is not published, so it ships inside this repository as
+# unixnu-fuxi/ and is passed with -D. Only the kernel step runs here: firmware
+# is built locally (it needs no Xcode) and is not part of this job.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'unixnu-fuxi/**'
+      - '.github/workflows/unixnu-kernel.yml'
+
+jobs:
+  kernel:
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: |
+          set -euo pipefail
+          echo "installed:"; ls /Applications | grep -i '^Xcode' || true
+          XCODE=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "${XCODE}" ]; then
+            echo "::error::no Xcode 16 on this runner; xnu-10063 cannot build with the default toolchain"
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE"
+          xcode-select -p
+          xcodebuild -version
+          # The harness calls xcrun/iig directly; fail here, not 10 minutes in.
+          xcrun --find iig
+
+      - name: Fetch UniXNU
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/UniXNU/UniXNU.git unixnu
+          git -C unixnu log --oneline -1
+
+      - name: Configure for fuxi
+        run: |
+          set -euo pipefail
+          cd unixnu
+          ./unixnu defconfig fuxi_defconfig -D "$GITHUB_WORKSPACE/unixnu-fuxi"
+          ./unixnu fetch
+          ./unixnu tree
+          echo "--- resolved config"
+          grep -E 'UFS|ADRENO|LEGACY_DISPLAY' out/fuxi/.config || true
+
+      - name: Build kernel
+        run: |
+          set -euo pipefail
+          cd unixnu
+          ./unixnu build kernel 2>&1 | tee "out/fuxi/kernel-build.log"
+
+      - name: Collect artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuxi-kernel
+          if-no-files-found: warn
+          path: |
+            unixnu/out/fuxi/kernel/**
+            unixnu/out/fuxi/kernel-build.log
+            unixnu/out/fuxi/logs/**
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "### unixnu-fuxi kernel"
+            echo '```'
+            tail -40 unixnu/out/fuxi/kernel-build.log 2>/dev/null || echo "no log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
