@@ -61,7 +61,7 @@ Harness: applied=118 skipped=0.
 +		 * holds the formatted version when it is populated, and the note
 +		 * sanitiser copes with whatever it actually contains.
  		 */
-+		fuxi_log_panic_note(str);
++		fuxi_log_panic_note(panic_format_str);
  		if (debug_buf_base != NULL) {
  			fuxi_log_panic_note(debug_buf_base);
  		}
