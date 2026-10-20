@@ -1,0 +1,59 @@
+fuxi: 0135 -- the shell also answers on the frame channel
+
+0134 put the debug shell on the UDP command socket, and on hardware that socket
+turns out not to answer: "stat" over UDP gets no reply while the same command
+over an 0x88B5 frame does.  The frame path (0106) is the one that was proven on
+the phone -- it needs no kernel socket, no IP stack, and no interface address,
+which is exactly the situation a wedged boot leaves you in.
+
+So the dispatcher the frame path already uses (ud_cmd) now calls the shell first
+and sends its reply as frames, one per ETHER_MAX_LEN-sized chunk, ending with the
+same "[[fuxi-shell-end]]" marker.  Verbs that need this driver's own state (fb,
+stat, cpu) stay where they were.
+
+tools/fuxi-ethcmd.py reads the reply until that marker, so it is now the client
+for a shell that works on a boot where UDP does not:
+
+  sudo tools/fuxi-ethcmd.py enx02005e77ee01 ps 20
+
+Harness: applied=134 skipped=0.  Why the UDP socket stops answering is still
+open; it is not this patch's problem, and the frame path is enough to debug with.
+
+diff --git a/bsd/dev/fuxi_usb.c b/bsd/dev/fuxi_usb.c
+index 6500e3b..e507636 100644
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -584,6 +584,33 @@ ud_cmd(const char *line)
+ 		fuxi_soc_reset();
+ 		return;
+ 	}
++	/*
++	 * The debug shell (patch 0134) speaks the same vocabulary on both paths.
++	 * It goes first, so "help" here lists what 0135 added; the verbs below
++	 * stay for the ones that need this driver's own state (fb, stat, cpu).
++	 */
++	{
++		extern int fuxi_shell_command(const char *line);
++		extern void fuxi_shell_end(void);
++		extern const char *fuxi_shell_out(size_t *len);
++		const char *out;
++		size_t out_len = 0;
++		size_t off = 0;
++
++		if (fuxi_shell_command(line)) {
++			fuxi_shell_end();
++			out = fuxi_shell_out(&out_len);
++			while (off < out_len) {
++				size_t chunk = out_len - off;
++				if (chunk > FUXI_CMD_FRAME_MAX) {
++					chunk = FUXI_CMD_FRAME_MAX;
++				}
++				ud_cmd_send(out + off, chunk);
++				off += chunk;
++			}
++			return;
++		}
++	}
+ 	if (len == 4 && strncmp(line, "help", 4) == 0) {
+ 		n = snprintf(reply, sizeof(reply),
+ 		    "fuxi: stat | cpu | fb [scale] | echo <text> | restart | help\n");
