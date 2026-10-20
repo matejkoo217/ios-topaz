@@ -1,0 +1,662 @@
+fuxi: 0134 -- a debug shell on the USB command channel
+
+The console streams one way and clips its own first minute; the command channel
+(0110) could only stat, cpu, echo and restart.  While this kernel runs there is no
+adb, no shell and no dmesg, so every question about a stuck boot -- who is
+spinning, what a process is waiting on, what a file actually says -- had to be
+answered by adding a printf and rebooting.  That is the wrong loop to be in when
+the thing being debugged is the boot itself.
+
+The phone side of the existing socket thread now dispatches to a small kernel
+shell, so the answers keep coming while launchd is wedged:
+
+  help                     this text
+  uptime                   seconds since boot
+  ps [n]                   processes by CPU time, heaviest first
+  cat <path> [bytes]       read a file through the VFS (default 4096, max 12288)
+  kill <pid> [sig]         signal a process (default 15 = SIGTERM)
+  smp <pid|name>           sample that process's user stacks (to the console)
+  stub <name[,name...]>    stop those binaries at exec; '-' clears
+
+Replies are chunked into 1 KiB datagrams and always end with the marker
+"[[fuxi-shell-end]]", so a client reads until it sees it.  "stub" exists because
+the boot restarts fairplayd.H2 and bluetoothd every few seconds (no baseband, no
+SEP): 0133 could only set that deny list from the boot arguments, and testing
+whether the respawn loop matters should not cost a reboot.  The list moved into a
+global, written by the shell and read on every exec; the boot argument still
+seeds it.
+
+No new locking: the shell runs on the one command thread, proc_find/proc_iterate
+give the references it holds, and a torn read of the stub list at worst stubs one
+wrong process, which the next "exec %s stubbed" line shows.
+
+Harness: applied=133 skipped=0.  fuxi_shell.c, fuxi_usb.c and kern_exec.c
+compile against the CI tree's headers (tools/xnu-cc.py, clang 18 local).
+
+diff --git a/bsd/conf/files b/bsd/conf/files
+index ce5ce46..19e7bb7 100644
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -112,6 +112,7 @@ bsd/dev/fuxi_i2c1.c			standard
+ bsd/dev/fuxi_rpmh.c			standard
+ bsd/dev/fuxi_spmi.c			standard
+ bsd/dev/fuxi_usb.c			standard
++bsd/dev/fuxi_shell.c			standard
+ bsd/dev/mem.c				standard
+ bsd/dev/munge.c 			optional config_requires_u32_munging
+ bsd/dev/unix_startup.c			standard
+diff --git a/bsd/dev/fuxi_shell.c b/bsd/dev/fuxi_shell.c
+new file mode 100644
+index 0000000..44b0309
+--- /dev/null
++++ b/bsd/dev/fuxi_shell.c
+@@ -0,0 +1,444 @@
++/*
++ * fuxi: a debug shell on the USB command channel.
++ *
++ * The console (UDP 5140) only goes one way and replays just the last 64 KiB, and
++ * the command channel (5141, patch 0110) used to be stop/start only: stat, cpu,
++ * echo, restart.  While this kernel runs there is no adb, no shell, no dmesg, so
++ * every question about a stuck boot had to be answered by adding a printf() and
++ * booting again.
++ *
++ * This file turns the channel into something to ask questions with.  The phone
++ * side of the existing socket thread dispatches each line here, on that thread,
++ * in the kernel: the answers keep coming while launchd is wedged, which is
++ * exactly when they are worth having.
++ *
++ *   help                        this text
++ *   uptime                      seconds since boot
++ *   ps [n]                      processes by CPU time, heaviest first
++ *   cat <path> [bytes]          read a file (default 4096, max 12288)
++ *   kill <pid> [sig]            signal a process (default 15, SIGTERM)
++ *   smp <pid|name>              sample that process's user stacks (to the console)
++ *   stub <name[,name...]> | -   stop the named binaries at exec; '-' clears
++ *
++ * Replies are one or more datagrams that always end with SH_END, so a client can
++ * read until it sees the marker.  This is debug code: one static buffer, one
++ * caller at a time (the command thread), nothing cached between calls.
++ *
++ * Copyright (c) 2026 the fuxi port authors.  BSD 2-clause, as the rest of here.
++ */
++
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/proc.h>
++#include <sys/proc_internal.h>
++#include <sys/kauth.h>
++#include <sys/vnode.h>
++#include <sys/vfs_context.h>
++#include <sys/signal.h>
++#include <sys/signalvar.h>
++#include <sys/uio.h>
++#include <kern/task.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
++#include <libkern/libkern.h>
++#include <pexpert/pexpert.h>
++
++/*
++ * Not in the exported headers this file is allowed to see (bsd/dev is built
++ * against EXPORT_HDRS, where signalvar.h and the machine routines are absent):
++ * declare what is used instead of reaching for private headers.
++ */
++extern void psignal(proc_t p, int sig);                  /* bsd/sys/signalvar.h */
++extern unsigned int ml_get_cpu_number_local(void);       /* osfmk/arm */
++extern void fuxi_sample_task(const char *name, int pid, task_t task);  /* 0054 */
++
++void fuxi_shell_reset(void);
++void fuxi_shell_printf(const char *fmt, ...) __printflike(1, 2);
++void fuxi_shell_end(void);
++const char *fuxi_shell_out(size_t *len);
++int fuxi_shell_command(const char *line);
++
++/* The whole reply lives here; a debug tool, not a stream server. */
++#define SH_BUF      (16 * 1024)
++#define SH_END      "\n[[fuxi-shell-end]]\n"
++#define SH_MAXROWS  384
++
++static char sh_out[SH_BUF];
++static size_t sh_len;
++
++/* ---- buffer -------------------------------------------------------------- */
++
++void
++fuxi_shell_reset(void)
++{
++	sh_len = 0;
++	sh_out[0] = '\0';
++}
++
++static void
++sh_printf(const char *fmt, ...) __printflike(1, 2);
++
++static void
++sh_printf(const char *fmt, ...)
++{
++	va_list ap;
++	int n;
++
++	if (sh_len + 1 >= SH_BUF) {
++		return;
++	}
++	va_start(ap, fmt);
++	n = vsnprintf(sh_out + sh_len, SH_BUF - sh_len, fmt, ap);
++	va_end(ap);
++	if (n > 0) {
++		size_t room = SH_BUF - sh_len - 1;
++		sh_len += ((size_t)n < room) ? (size_t)n : room;
++	}
++}
++
++/* For the verbs the USB side keeps (stat, echo) so replies share the framing. */
++void
++fuxi_shell_printf(const char *fmt, ...)
++{
++	va_list ap;
++	int n;
++
++	if (sh_len + 1 >= SH_BUF) {
++		return;
++	}
++	va_start(ap, fmt);
++	n = vsnprintf(sh_out + sh_len, SH_BUF - sh_len, fmt, ap);
++	va_end(ap);
++	if (n > 0) {
++		size_t room = SH_BUF - sh_len - 1;
++		sh_len += ((size_t)n < room) ? (size_t)n : room;
++	}
++}
++
++/* Terminates every reply, so the host knows when to stop reading datagrams. */
++void
++fuxi_shell_end(void)
++{
++	if (sh_len + sizeof(SH_END) <= SH_BUF) {
++		bcopy(SH_END, sh_out + sh_len, sizeof(SH_END));   /* the NUL too */
++		sh_len += sizeof(SH_END) - 1;
++	}
++}
++
++const char *
++fuxi_shell_out(size_t *len)
++{
++	*len = sh_len;
++	return sh_out;
++}
++
++/* ---- ps ------------------------------------------------------------------ */
++
++/* proc_iterate callback state for ps */
++struct sh_row {
++	pid_t    pid;
++	pid_t    ppid;
++	uid_t    uid;
++	uint64_t cpu_ns;
++	char     stat;
++	char     name[MAXCOMLEN + 1];
++};
++
++static struct sh_row sh_rows[SH_MAXROWS];
++static int sh_nrows;
++
++static int
++sh_ps_collect(proc_t p, __unused void *arg)
++{
++	struct sh_row *r;
++	task_t task;
++	uint64_t abstime;
++
++	if (sh_nrows >= SH_MAXROWS) {
++		return PROC_RETURNED;
++	}
++	task = proc_task(p);
++	if (task == TASK_NULL) {
++		return PROC_RETURNED;
++	}
++	r = &sh_rows[sh_nrows++];
++	r->pid = proc_pid(p);
++	r->ppid = p->p_ppid;
++	r->stat = p->p_stat;
++	r->uid = kauth_cred_getuid(proc_ucred(p));
++	r->name[0] = '\0';
++	(void)proc_name(r->pid, r->name, sizeof(r->name));
++	abstime = get_task_cpu_time(task);      /* user + system, in abstime units */
++	absolutetime_to_nanoseconds(abstime, &r->cpu_ns);
++	return PROC_RETURNED;
++}
++
++/* Heaviest first: the process eating the boot is the one worth reading about. */
++static void
++sh_ps_sort(void)
++{
++	int i, j;
++
++	for (i = 1; i < sh_nrows; i++) {
++		struct sh_row key = sh_rows[i];
++		for (j = i - 1; j >= 0 && sh_rows[j].cpu_ns < key.cpu_ns; j--) {
++			sh_rows[j + 1] = sh_rows[j];
++		}
++		sh_rows[j + 1] = key;
++	}
++}
++
++static void
++sh_ps(int limit)
++{
++	int i, shown;
++
++	sh_nrows = 0;
++	proc_iterate(PROC_ALLPROCLIST, sh_ps_collect, NULL, NULL, NULL);
++	sh_ps_sort();
++	shown = (limit <= 0 || limit > sh_nrows) ? sh_nrows : limit;
++	sh_printf("%5s %5s %5s %c %9s  %s\n",
++	    "pid", "ppid", "uid", "s", "cpu_ms", "name");
++	for (i = 0; i < shown; i++) {
++		struct sh_row *r = &sh_rows[i];
++		sh_printf("%5d %5d %5d %c %9llu  %s\n", r->pid, r->ppid, r->uid,
++		    r->stat, r->cpu_ns / 1000000ULL, r->name);
++	}
++	if (shown < sh_nrows) {
++		sh_printf("(%d more processes not shown)\n", sh_nrows - shown);
++	}
++}
++
++/* ---- cat ---------------------------------------------------------------- */
++
++static void
++sh_cat(const char *path, int want)
++{
++	vfs_context_t ctx = vfs_context_kernel();
++	vnode_t vp = NULLVP;
++	int err, iolen = 0;
++	size_t room;
++
++	if (want <= 0) {
++		want = 4096;
++	}
++	room = SH_BUF - sh_len - 2;
++	if ((size_t)want > room) {
++		want = (int)room;
++	}
++	err = vnode_lookup(path, 0, &vp, ctx);
++	if (err != 0) {
++		sh_printf("cat: %s: lookup error %d\n", path, err);
++		return;
++	}
++	err = vn_rdwr(UIO_READ, vp, sh_out + sh_len, want, 0, UIO_SYSSPACE,
++	    IO_NODELOCKED | IO_NOAUTH | IO_NOCACHE, vfs_context_ucred(ctx), &iolen, NULL);
++	vnode_put(vp);
++	if (err != 0 && iolen == 0) {
++		sh_printf("cat: %s: read error %d\n", path, err);
++		return;
++	}
++	sh_len += (size_t)iolen;
++	sh_out[sh_len] = '\0';
++}
++
++/* ---- smp ---------------------------------------------------------------- */
++
++struct sh_namewant {
++	const char *name;
++	pid_t       pid;
++	int         found;
++};
++
++static int
++sh_find_proc(proc_t p, void *arg)
++{
++	struct sh_namewant *w = arg;
++	char name[MAXCOMLEN + 1];
++
++	name[0] = '\0';
++	proc_name(proc_pid(p), name, sizeof(name));
++	if (name[0] != '\0' && strcmp(name, w->name) == 0) {
++		w->pid = proc_pid(p);
++		w->found = 1;
++		return PROC_RETURNED_DONE;
++	}
++	return PROC_RETURNED;
++}
++
++static void
++sh_smp(const char *what)
++{
++	struct sh_namewant w = { .name = what, .pid = 0, .found = 0 };
++	proc_t p;
++	int pid;
++	char name[MAXCOMLEN + 1];
++
++	name[0] = '\0';
++	if (what[0] >= '0' && what[0] <= '9') {
++		pid = (int)strtoul(what, NULL, 10);
++		p = proc_find(pid);
++	} else {
++		proc_iterate(PROC_ALLPROCLIST, sh_find_proc, &w, NULL, NULL);
++		p = w.found ? proc_find(w.pid) : PROC_NULL;
++		pid = w.pid;
++	}
++	if (p == PROC_NULL) {
++		sh_printf("smp: no process '%s'\n", what);
++		return;
++	}
++	(void)proc_name(pid, name, sizeof(name));
++	sh_printf("smp: sampling pid %d (%s) -- stacks go to the console\n", pid, name);
++	fuxi_sample_task(name, pid, proc_task(p));
++	proc_rele(p);
++}
++
++/* ---- entry -------------------------------------------------------------- */
++
++/*
++ * Returns 1 when the line was handled here.  The USB side owns "restart"
++ * (it has to reset the dead-man timer and call PEHaltRestart) and answers
++ * anything unrecognised.
++ */
++int
++fuxi_shell_command(const char *line)
++{
++	extern uint32_t fuxi_cpu_khz(void);     /* bsd/dev/fuxi_sample.c */
++
++	fuxi_shell_reset();
++
++	if (strncmp(line, "help", 4) == 0) {
++		sh_printf(
++		    "fuxi shell (kernel side, UDP 5141)\n"
++		    "  help                    this text\n"
++		    "  uptime                  seconds since boot\n"
++		    "  ps [n]                  processes by CPU time, heaviest first\n"
++		    "  cat <path> [bytes]      read a file (default 4096, max 12288)\n"
++		    "  kill <pid> [sig]        signal a process (default 15 = SIGTERM)\n"
++		    "  smp <pid|name>          sample user stacks, printed to the console\n"
++		    "  stub <name[,name...]>   stop those binaries at exec; '-' clears\n"
++		    "  stat | cpu | echo <t> | restart        (kept from patch 0110)\n");
++		return 1;
++	}
++
++	if (strncmp(line, "uptime", 6) == 0) {
++		uint64_t ns = 0;
++
++		absolutetime_to_nanoseconds(mach_absolute_time(), &ns);
++		sh_printf("uptime: %llu.%03llu s\n", ns / 1000000000ULL,
++		    (ns / 1000000ULL) % 1000ULL);
++		return 1;
++	}
++
++	if (strncmp(line, "ps", 2) == 0 && (line[2] == '\0' || line[2] == ' ')) {
++		int n = (line[2] == ' ') ? (int)strtoul(line + 3, NULL, 10) : 0;
++		sh_ps(n);
++		return 1;
++	}
++
++	if (strncmp(line, "cat ", 4) == 0) {
++		char path[256];
++		const char *p = line + 4;
++		const char *sp;
++		size_t plen;
++
++		while (*p == ' ') {
++			p++;
++		}
++		sp = p;
++		while (*sp != '\0' && *sp != ' ') {
++			sp++;
++		}
++		plen = (size_t)(sp - p);
++		if (plen == 0 || plen >= sizeof(path)) {
++			sh_printf("cat: need a path\n");
++			return 1;
++		}
++		bcopy(p, path, plen);
++		path[plen] = '\0';
++		sh_cat(path, (*sp == ' ') ? (int)strtoul(sp + 1, NULL, 10) : 0);
++		return 1;
++	}
++
++	if (strncmp(line, "kill ", 5) == 0) {
++		const char *sp = line + 5;
++		int pid = (int)strtoul(line + 5, NULL, 10);
++		int sig = SIGTERM;
++		proc_t p;
++
++		while (*sp != '\0' && *sp != ' ') {
++			sp++;
++		}
++		if (*sp == ' ') {
++			sig = (int)strtoul(sp + 1, NULL, 10);
++		}
++		p = proc_find(pid);
++		if (p == PROC_NULL) {
++			sh_printf("kill: no pid %d\n", pid);
++			return 1;
++		}
++		psignal(p, sig);
++		proc_rele(p);
++		sh_printf("kill: pid %d sig %d sent\n", pid, sig);
++		return 1;
++	}
++
++	if (strncmp(line, "smp ", 4) == 0) {
++		const char *p = line + 4;
++		const char *sp;
++		char what[32];
++		size_t wlen;
++
++		while (*p == ' ') {
++			p++;
++		}
++		sp = p;
++		while (*sp != '\0' && *sp != ' ') {
++			sp++;
++		}
++		wlen = (size_t)(sp - p);
++		if (wlen == 0 || wlen >= sizeof(what)) {
++			sh_printf("smp: need a pid or a name\n");
++			return 1;
++		}
++		bcopy(p, what, wlen);
++		what[wlen] = '\0';
++		sh_smp(what);
++		return 1;
++	}
++
++	if (strncmp(line, "stub", 4) == 0) {
++		extern void fuxi_noexec_set(const char *list);
++		const char *p = line + 4;
++
++		while (*p == ' ') {
++			p++;
++		}
++		if (*p == '\0') {
++			sh_printf("stub: pass names, or '-' to clear\n");
++			return 1;
++		}
++		if (*p == '-' && p[1] == '\0') {
++			fuxi_noexec_set("");
++			sh_printf("stub: cleared\n");
++			return 1;
++		}
++		fuxi_noexec_set(p);
++		sh_printf("stub: %s\n", p);
++		return 1;
++	}
++
++	if (strncmp(line, "cpu", 3) == 0) {
++		uint32_t khz = fuxi_cpu_khz();
++
++		if (khz != 0) {
++			sh_printf("cpu: cpu%u %u.%03u MHz\n", ml_get_cpu_number_local(),
++			    khz / 1000, khz % 1000);
++		} else {
++			sh_printf("cpu: cpu%u clock unreadable\n", ml_get_cpu_number_local());
++		}
++		return 1;
++	}
++
++	return 0;
++}
+diff --git a/bsd/dev/fuxi_usb.c b/bsd/dev/fuxi_usb.c
+index dfb7a56..6500e3b 100644
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -1057,11 +1057,19 @@ ud_event(uint32_t ev)
+  */
+ #define FUXI_CMD_PEER   ((uint32_t)0xc0a80701)   /* 192.168.7.1 */
+ 
++static void ud_cmd_send_raw(socket_t so, const char *buf, size_t len);
++
+ static void
+ ud_cmd_reply(socket_t so, const char *text)
++{
++	ud_cmd_send_raw(so, text, strlen(text));
++}
++
++static void
++ud_cmd_send_raw(socket_t so, const char *buf, size_t len)
+ {
+ 	struct sockaddr_in to;
+-	struct iovec iov = { .iov_base = (void *)text, .iov_len = strlen(text) };
++	struct iovec iov = { .iov_base = (void *)buf, .iov_len = len };
+ 	struct msghdr msg;
+ 	size_t sent = 0;
+ 
+@@ -1309,14 +1317,41 @@ fuxi_fb_kick(uint32_t scale)
+ 	return 0;
+ }
+ 
++/*
++ * The shell replies are bigger than one datagram (a ps of 150 processes, a 4 KiB
++ * file), so they go out in pieces; every reply ends with the shell's end marker
++ * and the host reads until it sees it.
++ */
++#define FUXI_CMD_CHUNK  1024u
++
++static void
++ud_cmd_reply_all(socket_t so, const char *buf, size_t len)
++{
++	size_t off = 0;
++
++	while (off < len) {
++		size_t n = len - off;
++
++		if (n > FUXI_CMD_CHUNK) {
++			n = FUXI_CMD_CHUNK;
++		}
++		ud_cmd_send_raw(so, buf + off, n);
++		off += n;
++	}
++}
++
+ static void
+ ud_cmd_dispatch(socket_t so, char *line)
+ {
+-	fuxi_cmd_touch();
+-	char reply[160];
++	extern int fuxi_shell_command(const char *line);
++	extern void fuxi_shell_end(void);
++	extern void fuxi_shell_printf(const char *fmt, ...);
++	extern const char *fuxi_shell_out(size_t *len);
++	const char *out;
++	size_t out_len = 0;
+ 	size_t len = strlen(line);
+-	int n;
+ 
++	fuxi_cmd_touch();
+ 	while (len > 0 && (line[len - 1] == '\r' || line[len - 1] == '\n')) {
+ 		line[--len] = '\0';
+ 	}
+@@ -1335,27 +1370,28 @@ ud_cmd_dispatch(socket_t so, char *line)
+ 		fuxi_soc_reset();
+ 		return;
+ 	}
+-	if (strncmp(line, "help", 4) == 0) {
+-		n = snprintf(reply, sizeof(reply),
+-		    "fuxi: stat | cpu | echo <text> | restart | help\n");
+-	} else if (strncmp(line, "stat", 4) == 0) {
+-		n = snprintf(reply, sizeof(reply),
+-		    "usb: ue0 %s, rx %llu tx %llu frames, %llu events\n",
++	/*
++	 * Everything else is the shell's (patch 0134): help, uptime, ps, cat,
++	 * kill, smp, stub, cpu.  stat and echo stay here because they read the
++	 * driver's own counters.
++	 */
++	if (fuxi_shell_command(line)) {
++		fuxi_shell_end();
++		out = fuxi_shell_out(&out_len);
++		ud_cmd_reply_all(so, out, out_len);
++		return;
++	}
++	if (strncmp(line, "stat", 4) == 0) {
++		fuxi_shell_printf("usb: ue0 %s, rx %llu tx %llu frames, %llu events\n",
+ 		    ud.configured ? "up" : "down", ud.rx_frames, ud.tx_frames, ud.events);
+-	} else if (strncmp(line, "cpu", 3) == 0) {
+-		uint32_t khz = fuxi_cpu_khz();
+-		n = khz ? snprintf(reply, sizeof(reply), "cpu: cpu%u %u.%03u MHz\n",
+-		    ml_get_cpu_number_local(), khz / 1000, khz % 1000) :
+-		    snprintf(reply, sizeof(reply), "cpu: cpu%u clock unreadable\n",
+-		    ml_get_cpu_number_local());
+ 	} else if (strncmp(line, "echo ", 5) == 0) {
+-		n = snprintf(reply, sizeof(reply), "echo: %s\n", line + 5);
++		fuxi_shell_printf("echo: %s\n", line + 5);
+ 	} else {
+-		n = snprintf(reply, sizeof(reply), "?: %s (try help)\n", line);
+-	}
+-	if (n > 0) {
+-		ud_cmd_reply(so, reply);
++		fuxi_shell_printf("?: %s (try help)\n", line);
+ 	}
++	fuxi_shell_end();
++	out = fuxi_shell_out(&out_len);
++	ud_cmd_reply_all(so, out, out_len);
+ }
+ 
+ static void
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index af5745b..c77366e 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7355,6 +7355,27 @@ fuxi_exec_denied(const char *name, const char *list)
+ 	return 0;
+ }
+ 
++/*
++ * The deny list the debug shell sets ("stub fairplayd.H2,bluetoothd"), so the
++ * question "what does the boot do without these respawn loops?" can be answered
++ * without a reboot.  One writer (the USB command thread), readers on every exec:
++ * a torn read would stub nothing or one wrong process, and the next stubbed exec
++ * prints its name, so it is visible rather than silent.
++ */
++static char fuxi_noexec_runtime[160];
++
++void
++fuxi_noexec_set(const char *list)
++{
++	size_t n = strlen(list);
++
++	if (n >= sizeof(fuxi_noexec_runtime)) {
++		n = sizeof(fuxi_noexec_runtime) - 1;
++	}
++	bcopy(list, fuxi_noexec_runtime, n);
++	fuxi_noexec_runtime[n] = '\0';
++}
++
+ static int
+ process_signature(proc_t p, struct image_params *imgp)
+ {
+@@ -7453,8 +7474,14 @@ process_signature(proc_t p, struct image_params *imgp)
+ 			{
+ 				char deny[160] = "";
+ 
+-				if (PE_parse_boot_argn("fuxinoexec", deny, sizeof(deny)) &&
+-				    deny[0] != '\0' && fuxi_exec_denied(p->p_name, deny)) {
++				if (fuxi_noexec_runtime[0] != '\0') {
++					bcopy(fuxi_noexec_runtime, deny,
++					    sizeof(deny) - 1);
++				} else {
++					(void)PE_parse_boot_argn("fuxinoexec", deny,
++					    sizeof(deny));
++				}
++				if (deny[0] != '\0' && fuxi_exec_denied(p->p_name, deny)) {
+ 					/*
+ 					 * Stub, do not refuse: a refused exec sends launchd into a
+ 					 * retry loop, while a stopped process looks alive, never

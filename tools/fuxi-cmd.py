@@ -8,12 +8,18 @@ host interface must own 192.168.7.1/24:
   sudo ip link set enx02005e77ee01 up
   sudo ip addr add 192.168.7.1/24 dev enx02005e77ee01
 
-  tools/fuxi-cmd.py stat
-  tools/fuxi-cmd.py cpu
-  tools/fuxi-cmd.py echo hello
-  tools/fuxi-cmd.py restart        # resets the phone out of the kernel
+  tools/fuxi-cmd.py help                       # the shell's own list (patch 0134)
+  tools/fuxi-cmd.py uptime
+  tools/fuxi-cmd.py ps 20                      # heaviest processes, CPU time
+  tools/fuxi-cmd.py cat /private/var/log/x.log 8192
+  tools/fuxi-cmd.py kill 227 15
+  tools/fuxi-cmd.py smp bluetoothd             # user stacks -> the console stream
+  tools/fuxi-cmd.py stub fairplayd.H2,bluetoothd   # stop them at exec
+  tools/fuxi-cmd.py stat | cpu | echo hello | restart
 
-Replies come back to the same socket; --wait sets how long to listen.
+Replies come back to the same socket in 1 KiB datagrams and end with
+"[[fuxi-shell-end]]", so this stops as soon as it sees the marker and only falls
+back to --wait when a reply is missing.
 """
 import argparse
 import socket
@@ -21,6 +27,7 @@ import sys
 
 PHONE = "192.168.7.2"
 PORT = 5141
+END = b"[[fuxi-shell-end]]"
 
 
 def main():
@@ -45,8 +52,12 @@ def main():
         while True:
             data, _ = s.recvfrom(2048)
             got += data
+            if END in got:
+                break
     except socket.timeout:
         pass
+    if END in got:
+        got = got[:got.index(END)]
     if not got:
         print(f"no reply from {PHONE}:{PORT} (link down? wrong interface address?)",
               file=sys.stderr)
