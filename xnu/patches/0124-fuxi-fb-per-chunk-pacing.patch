@@ -1,0 +1,43 @@
+fuxi: 0124 -- pace every chunk; the transmit queue drops silently
+
+0123 got 55 of 158 chunks instead of 37, which says the queue is the limit and that
+retrying is pointless: when the ECM interface's queue is full the packet is dropped
+without an error, so sock_send reports success and the chunk is simply lost.
+
+The grab now paces one chunk per 2 ms -- a 158-chunk frame takes ~0.3 s, far inside what
+the link carries -- and asks for a 1 MiB socket buffer so the queue is filled by us, not
+by the stack.
+
+Harness: applied=123 skipped=0.
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -1224,6 +1224,12 @@
+ 		printf("FUXI FB: socket failed\n");
+ 		return;
+ 	}
++	{
++		int bufsize = 1 << 20;
++
++		(void)sock_setsockopt(so, SOL_SOCKET, SO_SNDBUF, &bufsize,
++		    sizeof(bufsize));
++	}
+ 
+ 	bzero(&h, sizeof(h));
+ 	memcpy(h.magic, FUXI_FB_MAGIC, 8);
+@@ -1247,9 +1253,13 @@
+ 					printf("FUXI FB: sends failing, aborting\n");
+ 					goto done;
+ 				}
+-				if ((chunk & 15u) == 0) {
+-					ud_sleep_ms(1);   /* let the TX queue drain */
+-				}
++				/*
++				 * The interface drops silently when its queue fills, so a
++				 * retry cannot detect the loss: pace every chunk instead.
++				 * 2 ms per 1404-byte datagram is well inside what the link
++				 * carries, and a 158-chunk frame still takes ~0.3 s.
++				 */
++				ud_sleep_ms(2);
+ 			}
+ 			payload[used++] = (uint8_t)(px >> 16);   /* R */
+ 			payload[used++] = (uint8_t)(px >> 8);    /* G */
