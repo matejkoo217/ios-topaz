@@ -70,6 +70,10 @@ jobs:
           # and the harness then builds the real archives and links again.
           TREE=unixnu/out/fuxi/tree
           cd "$TREE"
+          # llvm-ar refuses an archive with no members, so seed each one with a
+          # single empty object: valid to ld, no symbols.
+          printf '' > /tmp/empty.c
+          xcrun clang -c -x c /tmp/empty.c -o /tmp/empty.o
           for a in \
             build/adreno-firmware-probe/libAdrenoFirmwareProbe.a \
             build/adreno-pm4-probe/libAdrenoPM4Probe.a \
@@ -93,12 +97,12 @@ jobs:
             build/verified-root-xnu/libVerifiedRootProbe.a \
           ; do
             mkdir -p "$(dirname "$a")"
-            [ -f "$a" ] || ar crs "$a"
+            [ -f "$a" ] || ar crs "$a" /tmp/empty.o
           done
           # Object-file guards need a file, not an archive.
-          : > build/libpthread-kernel/source_pthread_bootstrap.o
-          ar rcs build/native-ram-block/NativeRamBlock.o.tmp && mv build/native-ram-block/NativeRamBlock.o.tmp build/native-ram-block/NativeRamBlock.o
-          echo "seeded $(find build -name '*.a' -newer "$TREE/board.toml" 2>/dev/null | wc -l) archives"
+          cp /tmp/empty.o build/libpthread-kernel/source_pthread_bootstrap.o
+          cp /tmp/empty.o build/native-ram-block/NativeRamBlock.o
+          echo "seeded: $(ls -1 build/*/lib*.a 2>/dev/null | wc -l) archives"
 
       - name: Build kernel
         run: |
