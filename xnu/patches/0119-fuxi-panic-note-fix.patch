@@ -1,22 +1,21 @@
-fuxi: 0119 -- the panic note actually lands in the ring
+fuxi: 0119 -- tee the panic output into the ring instead of guessing at buffers
 
-0118 was right in principle and wrong in practice: it fed debug_buf_base to the note,
-but on this target that buffer does not hold printable text at hook time, so the ring
-still ended at "exec remotepairingdeviced" while the phone correctly reset itself.
+Two attempts failed for the same reason: neither `str` nor `panic_format_str` is in
+scope where the hook lives (it is debugger_collect_diagnostics), and debug_buf_base
+does not hold the formatted text at that point.  The message is emitted by
+_doprnt(debugger_panic_str, debugger_panic_args, consdebug_putc, 0) -- so tee the
+output: fuxi_panic_tee_putc writes each character to the console and to the ring.
 
-Now the note takes the panic format string, which is always in scope in panic()
-("kmem_%s(%p, %zd, 0x%x): failed with %d" names the failure even unformatted), and
-also the raw buffer, sanitised: bytes outside printable ASCII become '.', so a header
-or a half-written buffer produces readable garbage instead of nothing.
+The ring now receives the panic text exactly as printed, formatted, with no
+assumptions about which buffer holds what. Both _doprnt call sites use the tee, and
+the sanitised note stays as a fallback.
 
-Fixes a real off-by-prefix as well: the sanitiser wrote at line[12 + n] while the
-"*** FUXI PANIC: " prefix is 17 bytes, so the text would have overwritten its own
-label.
+Also fixes the off-by-prefix in the note (text at line[12+n] under a 17-byte label).
 
 Harness: applied=118 skipped=0.
 --- a/bsd/dev/fuxi_ufs.c
 +++ b/bsd/dev/fuxi_ufs.c
-@@ -1168,15 +1168,25 @@
+@@ -1168,16 +1168,40 @@
  void
  fuxi_log_panic_note(const char *text)
  {
@@ -37,7 +36,7 @@ Harness: applied=118 skipped=0.
 +		char c = text[i];
 +		line[17 + n] = (c >= ' ' && c <= '~') || c == '\n' ? c : '.';
 +		n++;
-+	}
+ 	}
 +	if (n == 0) {
 +		return;
 +	}
@@ -45,12 +44,66 @@ Harness: applied=118 skipped=0.
 +	fuxi_log_append(line, (int)(17 + n));
 +	if (line[17 + n - 1] != '\n') {
 +		fuxi_log_append("\n", 1);
- 	}
++	}
++}
++
++/*
++ * Feed the panicking console straight into the ring, one character at a time.
++ * debug.c tees the formatted panic message through this, so the cause lands in the
++ * 16 KiB that survives the reset -- text, not a format string, not a guess at which
++ * buffer holds it.
++ */
++void
++fuxi_log_panic_putc(int c)
++{
++	char ch = (char)c;
++
++	fuxi_log_append(&ch, 1);
  }
  
+ void
 --- a/osfmk/kern/debug.c
 +++ b/osfmk/kern/debug.c
-@@ -1466,9 +1466,12 @@
+@@ -1212,6 +1212,20 @@
+  * This routine handles kicking off local coredumps, paniclogs, calling into the Debugger/KDP (if it's configured),
+  * and calling out to any other functions we have for collecting diagnostic info.
+  */
++/*
++ * The console the panic message goes to is not the console the ring sees.  Tee the
++ * characters: formatted output reaches userdata, so a self-reset still leaves the
++ * reason behind.
++ */
++static void
++fuxi_panic_tee_putc(char c)
++{
++	extern void fuxi_log_panic_putc(int);
++
++	consdebug_putc(c);
++	fuxi_log_panic_putc((int)c);
++}
++
+ static void
+ debugger_collect_diagnostics(unsigned int exception, unsigned int code, unsigned int subcode, void *state)
+ {
+@@ -1283,7 +1297,7 @@
+ 		if (debugger_panic_str) {
+ #pragma clang diagnostic push
+ #pragma clang diagnostic ignored "-Wformat-nonliteral"
+-			_doprnt(debugger_panic_str, debugger_panic_args, consdebug_putc, 0);
++			_doprnt(debugger_panic_str, debugger_panic_args, fuxi_panic_tee_putc, 0);
+ #pragma clang diagnostic pop
+ 		}
+ 		paniclog_append_noflush("\n");
+@@ -1439,7 +1453,7 @@
+ 			panic_debugger_log("panic(cpu %u caller 0x%lx): ", (unsigned) cpu_number(), debugger_panic_caller);
+ #pragma clang diagnostic push
+ #pragma clang diagnostic ignored "-Wformat-nonliteral"
+-			_doprnt(debugger_panic_str, debugger_panic_args, consdebug_putc, 0);
++			_doprnt(debugger_panic_str, debugger_panic_args, fuxi_panic_tee_putc, 0);
+ #pragma clang diagnostic pop
+ 			panic_debugger_log("\n");
+ 		}
+@@ -1466,8 +1480,10 @@
  		extern void fuxi_panic_reset(void);
  
  		/*
@@ -61,7 +114,5 @@ Harness: applied=118 skipped=0.
 +		 * holds the formatted version when it is populated, and the note
 +		 * sanitiser copes with whatever it actually contains.
  		 */
-+		fuxi_log_panic_note(panic_format_str);
  		if (debug_buf_base != NULL) {
  			fuxi_log_panic_note(debug_buf_base);
- 		}
