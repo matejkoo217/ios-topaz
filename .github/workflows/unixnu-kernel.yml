@@ -69,6 +69,21 @@ jobs:
           cd unixnu
           ./unixnu build kernel 2>&1 | tee "out/fuxi/kernel-build.log"
 
+      - name: Compile records (diagnostic)
+        if: always()
+        run: |
+          set -uo pipefail
+          T=unixnu/out/fuxi/tree
+          echo "--- any .o.json under the tree:"
+          find "$T/build" -name '*.o.json' 2>/dev/null | head -20
+          echo "--- count: $(find "$T/build" -name '*.o.json' 2>/dev/null | wc -l)"
+          echo "--- osfmk objects:"
+          find "$T/build/xnu/ios-obj" -path '*osfmk*' -name 'startup.o*' 2>/dev/null | head -5
+          echo "--- harness record path:"
+          ls -la "$T/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/osfmk/DEVELOPMENT/startup.o.json" 2>&1 | head -2
+          echo "--- make dirs:"
+          ls -d "$T/build/xnu/ios-obj"/* 2>/dev/null | head -5
+
       - name: Collect artifacts
         if: always()
         uses: actions/upload-artifact@v4
