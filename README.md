@@ -25,7 +25,7 @@ As of **2026-10-18** the phone boots to the **iOS lock screen** in about 3 minut
 
 - **Touch and buttons.** The FocalTech FT5452 driver (patch 0083) is written but not yet confirmed on the phone; power/volume keys are not ported.
 - **No Wi-Fi, Bluetooth, cellular, audio, camera, sensors, GPS, SEP.** `bluetoothd` and `fairplayd.H2` relaunch constantly because the hardware is missing.
-- **No GPU**, low frame rate (the CPU copies frames to the panel, `sweetfb_hz`).
+- **No GPU**, low frame rate (the CPU copies frames to the panel, `fuxifb_hz`).
 - **No real-time clock**: the date starts at 31 December.
 - **Only 4 of 8 cores** (see "Why only the Gold cores").
 - **Security is off**: permissive AMFI and sandbox, stub AppleKeyStore, no data protection.
@@ -59,7 +59,7 @@ ABL (stock Xiaomi bootloader, unlocked)
                  -> dyld + shared cache -> launchd -> backboardd + SpringBoard
 ```
 
-There is no serial console. The kernel draws its console into ABL's framebuffer; with `sweetfb_noconsole=1` it stops after the first iOS frame (panics are still drawn). The kernel also keeps sweet's persistent log ring at the end of `userdata` and its user stack sampler (`SMP name tN pc .. bt ..`).
+There is no serial console. The kernel draws its console into ABL's framebuffer; with `fuxifb_noconsole=1` it stops after the first iOS frame (panics are still drawn). The kernel also keeps sweet's persistent log ring at the end of `userdata` and its user stack sampler (`SMP name tN pc .. bt ..`).
 
 ## How to do it yourself
 
@@ -98,7 +98,7 @@ Needs `aarch64-linux-gnu-gcc` and AOSP `mkbootimg.py` (set `MKBOOTIMG` if it is 
 ```sh
 python3 tools/mkadt.py shim/out/topaz.adt --highmem
 python3 tools/mkpayload.py xnu/out/kernel.development.sweet shim/out/topaz.adt shim/out/payload.bin \
-    --cmdline 'debug=0xc serial=3 cpus=4 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 sweetfb_noconsole=1 sweetfb_hz=30'
+    --cmdline 'debug=0xc serial=3 cpus=4 keepsyms=1 -noprogress rd=ufsroot0 unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin ufsrw=1 rootrw=1 launchd_unsecure_cache=1 wdt=-1 fuxifb_noconsole=1 fuxifb_hz=30'
 shim/build.sh ../shim/out/payload.bin      # -> shim/out/shim-boot.img
 ```
 
@@ -106,10 +106,10 @@ shim/build.sh ../shim/out/payload.bin      # -> shim/out/shim-boot.img
 | --- | --- |
 | `rd=ufsroot0 ufsrw=1 rootrw=1` | Root on `userdata`, writable |
 | `cpus=4` | All four Gold cores; `cpus=1` is the safe fallback |
-| `sweetfb_noconsole=1` | Stop drawing kernel text over the GUI after the first iOS frame. Leave it out to debug (much slower: every console line is drawn and scrolled by the CPU) |
-| `sweetfb_hz=30` | Panel refresh rate of the CPU frame copy |
-| `sweettouch=0` | Disable the touch driver |
-| `sweethw=1` | Also start sweet's SM7150 key and USB drivers (**unsafe on topaz**, not ported) |
+| `fuxifb_noconsole=1` | Stop drawing kernel text over the GUI after the first iOS frame. Leave it out to debug (much slower: every console line is drawn and scrolled by the CPU) |
+| `fuxifb_hz=30` | Panel refresh rate of the CPU frame copy |
+| `fuxitouch=0` | Disable the touch driver |
+| `fuxihw=1` | Also start sweet's SM7150 key and USB drivers (**unsafe on topaz**, not ported) |
 | `launchd_unsecure_cache=1`, `wdt=-1 wdt_test=no_user_checkin` | launchd without AMFI; no hardware watchdog |
 
 ### 4. Flash the root and boot
@@ -130,7 +130,7 @@ The shim screen (red) shows `MMFR0`, the Gold hand-off and `SPEED silver=… gol
 
 1. **Touch** (FT5452 at I²C `0x38` on QUP0 SE2 `0x4a88000`, IRQ GPIO80, reset GPIO86, AVDD GPIO36): patch 0083, needs confirmation on the phone.
 2. **Buttons**: power and volume down on the PM6125 PON block, volume up on PM6125 GPIO5.
-3. **Smoother display**: higher `sweetfb_hz`; check whether the Gold cores run at a low clock without cpufreq (the shim's speed probe) and raise it if so.
+3. **Smoother display**: higher `fuxifb_hz`; check whether the Gold cores run at a low clock without cpufreq (the shim's speed probe) and raise it if so.
 4. **Narrow the GIC fix** to the register that actually matters, then move it into XNU.
 5. **Real-time clock** from the PMIC RTC or passed in by the shim.
 6. **All 8 cores (experiment, later):** build XNU with 4K pages (drop `__ARM_16K_PG__` from `SWEET.h`, as XNU's own `BCM2837` Raspberry Pi 3 config does on Cortex-A53) and describe two clusters, Gold as `P` and Silver as `E`, so the AMP scheduler uses both. Risk: the iOS 16 userland was only ever run on 16K pages (hard-coded 16K in malloc, JIT guard pages, IOSurface, commpage layout), and the 16K assumptions in the shim and sweet's patches have to be checked too. The 16K Gold-only kernel stays as the fallback.
@@ -155,7 +155,7 @@ Not in git: partition backups, live device trees, Apple firmware and root images
 
 | # | What |
 | --- | --- |
-| 0080 | CPU topology for SM6225; sweet's SM7150 key/touch/USB drivers gated behind `sweethw=1` |
+| 0080 | CPU topology for SM6225; sweet's SM7150 key/touch/USB drivers gated behind `fuxihw=1` |
 | 0081 | ARMv8.0: `-mcpu=cortex-a53`, no PAN, PFZ without CASA, userland LSE/LDAPR emulation |
 | 0082 | Boot CPU is Gold MPIDR `0x100` |
 | 0083 | Touch: FocalTech FT5452 on QUP0 SE2 (values from [topaz-woa](https://github.com/MakrSas/topaz-woa) TopazTouch) |

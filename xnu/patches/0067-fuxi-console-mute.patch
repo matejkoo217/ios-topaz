@@ -5,7 +5,7 @@
  #if defined(ARM64_BOARD_CONFIG_FUXI)
  extern void fuxi_log_append(const char *c, int size);  /* bsd/dev/fuxi_ufs.c */
 +/*
-+ * Set by AppleCLCD (boot-arg sweetfb_noconsole=1) once the GUI presents:
++ * Set by AppleCLCD (boot-arg fuxifb_noconsole=1) once the GUI presents:
 + * console text still goes to the persistent log, but is not drawn over
 + * the GUI. A panic draws again.
 + */
@@ -29,9 +29,9 @@
   *
   * The panel memory itself is published as an IOSurface and returned as the
   * default framebuffer surface. The kernel text console keeps drawing over
-- * the GUI by default: pausing it (boot-arg sweetfb_noconsole=1, on the
+- * the GUI by default: pausing it (boot-arg fuxifb_noconsole=1, on the
 - * first swap) switches the console to serial, which also hides panics.
-+ * the GUI by default: boot-arg sweetfb_noconsole=1 stops drawing it from
++ * the GUI by default: boot-arg fuxifb_noconsole=1 stops drawing it from
 + * the first swap on (it still reaches the persistent log; panics draw).
   */
  #include "FuxiSurface.h"
@@ -44,7 +44,7 @@
 @@ -290,9 +292,9 @@
  		int quiet = 0;
  		fConsolePaused = true;
- 		if (PE_parse_boot_argn("sweetfb_noconsole", &quiet, sizeof(quiet)) && quiet != 0) {
+ 		if (PE_parse_boot_argn("fuxifb_noconsole", &quiet, sizeof(quiet)) && quiet != 0) {
 -			PE_Video video;
 -			PE_current_console(&video);
 -			PE_initialize_console(&video, kPEDisableScreen);

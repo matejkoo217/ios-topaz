@@ -16,7 +16,7 @@ in the log rather than as silence.
 
 Second half: one IOLog per AKS selector call is enough to dominate a boot, because
 each line goes to a framebuffer that is Device memory with the MMU off, and it
-also floods the netlog.  Tracing is now behind sweetakstrace=1; failures always
+also floods the netlog.  Tracing is now behind fuxiakstrace=1; failures always
 print, since those are the ones that explain a crash loop.
 
 Harness: applied=107 skipped=0.
@@ -43,7 +43,7 @@ Harness: applied=107 skipped=0.
  	}
  	setProperty(kIOUserClientClassKey, "AppleKeyStoreUserClient");
  	registerService();
-+	PE_parse_boot_argn("sweetakstrace", &fuxi_aks_trace, sizeof(fuxi_aks_trace));
++	PE_parse_boot_argn("fuxiakstrace", &fuxi_aks_trace, sizeof(fuxi_aks_trace));
  	IOLog("FUXI AKS: AppleKeyStore registered (no passcode, unlocked)\n");
  	return true;
  }
@@ -97,7 +97,7 @@ Harness: applied=107 skipped=0.
 +	/*
 +	 * Per-call tracing is the only way to see what a daemon wanted from AKS, but
 +	 * one line per selector call on a Device-memory framebuffer is enough to
-+	 * dominate a boot, so it is behind sweetakstrace=1.  Failures always print:
++	 * dominate a boot, so it is behind fuxiakstrace=1.  Failures always print:
 +	 * those are the ones that explain a crash loop.
 +	 */
 +	if (ret != kIOReturnSuccess || fuxi_aks_trace) {

@@ -9,7 +9,7 @@ Two directions, two mechanisms, because that is what the kernel already speaks:
             them in the USB receive path and answers with a frame
             (patch 0106).  No IP configuration of any kind is involved.
 
-The phone enumerates as a CDC-ECM device when it boots with sweethw=1, so the
+The phone enumerates as a CDC-ECM device when it boots with fuxihw=1, so the
 interface shows up by itself (MAC 02:00:5e:77:ee:02); its IP does not need to be
 set, and cdc_ether's own 192.168.7.1/24 on the host side is what makes the UDP
 half work.
@@ -101,7 +101,7 @@ def main():
         if iface:
             cmd_so = open_cmd_socket(iface)
         elif args.cmd:
-            sys.exit("no interface with the phone's MAC -- is it booted with sweethw=1?")
+            sys.exit("no interface with the phone's MAC -- is it booted with fuxihw=1?")
 
     if args.cmd:
         for c in args.cmd:

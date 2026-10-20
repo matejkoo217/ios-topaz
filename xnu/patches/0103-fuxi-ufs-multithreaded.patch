@@ -6,7 +6,7 @@ the rename's token map applied to identifiers, the log prefixes, the log magic
 and the driver externs, so it lands on the post-rename file rather than next to
 it.  Two deliberate nits on top of the mechanical rename: the file header says
 FUXI, and the tsleep channel label is "fuxilog" -- a wait-channel label, not the
-sweetlog= boot argument, which is untouched.
+fuxilog= boot argument, which is untouched.
 
 The root driver issued polled SCSI commands ONE at a time behind a single global
 mutex, with a single UTRD, a single UCD and a single 1 MiB bounce buffer.  Even
@@ -862,25 +862,25 @@ still detected by polling.  REG_IE plus a completion path is the next step.
 -	/*
 -	 * Input drivers (HID services in iokit/Kernel/arm/hid/FuxiHID.cpp).
 -	 * Touch (FT5452 on QUP0 SE2) and keys (PM6125 over SPMI) are ported to
--	 * topaz; sweettouch=0 / sweetkeys=0 disable them. USB still pokes SM7150
--	 * MMIO (DWC3 at 0xa600000), so it only runs with sweethw=1.
+-	 * topaz; fuxitouch=0 / fuxikeys=0 disable them. USB still pokes SM7150
+-	 * MMIO (DWC3 at 0xa600000), so it only runs with fuxihw=1.
 -	 */
 +
  	int hw = 0;
- 	(void)PE_parse_boot_argn("sweethw", &hw, sizeof(hw));
+ 	(void)PE_parse_boot_argn("fuxihw", &hw, sizeof(hw));
  	fuxi_touch_init();
 @@ -743,13 +887,9 @@
  }
  
  /*
-- * Persistent console log ("sweetlog"). Filming the phone screen is the only
+- * Persistent console log ("fuxilog"). Filming the phone screen is the only
 - * other way to see the console, so every character that reaches the
 - * console (kernel printf and /dev/console writes of daemons, both through
 - * _cnputs) is also kept in a 4 MiB ring, and once the partition is known
 - * and writable a thread copies new ring blocks to the LAST 4 MiB + 4 KiB of
 - * the partition every ufslogsecs seconds (default 10), far behind the HFS
 - * image at its start. Device block 0 of that area is a header:
-+ * Persistent console log ("sweetlog"). Kept in a 4 MiB ring; a thread
++ * Persistent console log ("fuxilog"). Kept in a 4 MiB ring; a thread
 + * copies new ring blocks to the LAST 4 MiB + 4 KiB of the partition every
 + * ufslogsecs seconds (default 10). Device block 0 of that area is a header:
   *   "FUXI-LOG" | u32 version 1 | u32 ring size | u64 total bytes written
@@ -920,7 +920,7 @@ still detected by polling.  REG_IE plus a completion path is the next step.
 +	    "(block 0x%llx, slot %u)\n",
 +	    FUXI_LOG_BLOCKS * UFS_BLOCK >> 10, base, slot->index);
  	for (;;) {
--		(void)tsleep(&fuxi_log_chan, PZERO, "sweetlog", hz * (int)fuxi_log_secs);
+-		(void)tsleep(&fuxi_log_chan, PZERO, "fuxilog", hz * (int)fuxi_log_secs);
 +		(void)tsleep(&fuxi_log_chan, PZERO, "fuxilog",
 +		    hz * (int)fuxi_log_secs);
  		uint64_t total = os_atomic_load(&fuxi_log_total, relaxed);

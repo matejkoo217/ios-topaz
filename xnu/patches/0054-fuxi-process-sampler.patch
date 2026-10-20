@@ -91,15 +91,15 @@
  #if defined(ARM64_BOARD_CONFIG_FUXI)
  /*
   * SWEET IOKit trace: registry and matching calls made by the processes
-- * named in boot-arg sweetiolog (comma separated, default "backboardd";
-+ * named in boot-arg sweetiolog (comma separated, default "backboardd,SpringBoard";
+- * named in boot-arg fuxiiolog (comma separated, default "backboardd";
++ * named in boot-arg fuxiiolog (comma separated, default "backboardd,SpringBoard";
   * "-" turns it off) are printed as "IOK name: ...", at most 400 lines per
   * boot, to find out what a daemon looks for before it gives up.
   */
 @@ -2616,7 +2616,7 @@
  {
  	if (!fuxi_iolog_parsed) {
- 		if (!PE_parse_boot_argn("sweetiolog", fuxi_iolog_names, sizeof(fuxi_iolog_names))) {
+ 		if (!PE_parse_boot_argn("fuxiiolog", fuxi_iolog_names, sizeof(fuxi_iolog_names))) {
 -			strlcpy(fuxi_iolog_names, "backboardd", sizeof(fuxi_iolog_names));
 +			strlcpy(fuxi_iolog_names, "backboardd,SpringBoard", sizeof(fuxi_iolog_names));
  		}
@@ -134,7 +134,7 @@
 + *
 + * The phone has no debugger and daemons log nowhere readable. Every
 + * interval a kernel thread prints, for each process named in boot-arg
-+ * sweetsample (comma separated, default "SpringBoard,backboardd"; "-" = off)
++ * fuxisample (comma separated, default "SpringBoard,backboardd"; "-" = off)
 + * and for each of its threads, the user pc/lr/sp and a frame-pointer
 + * backtrace as "SMP name[pid] tN pc ... lr ... bt ..." (header line with the
 + * shared region slide and the main binary's mach header, to symbolicate
@@ -195,7 +195,7 @@
 +fuxi_sample_thread(__unused void *arg, __unused wait_result_t wr)
 +{
 +	static int chan;
-+	if (!PE_parse_boot_argn("sweetsample", fuxi_sample_names, sizeof(fuxi_sample_names))) {
++	if (!PE_parse_boot_argn("fuxisample", fuxi_sample_names, sizeof(fuxi_sample_names))) {
 +		strlcpy(fuxi_sample_names, "SpringBoard,backboardd", sizeof(fuxi_sample_names));
 +	}
 +	if (fuxi_sample_names[0] == '-') {

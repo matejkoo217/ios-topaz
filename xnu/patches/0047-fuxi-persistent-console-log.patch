@@ -25,7 +25,7 @@
  }
  
 +/*
-+ * Persistent console log ("sweetlog"). Filming the phone screen is the only
++ * Persistent console log ("fuxilog"). Filming the phone screen is the only
 + * other way to see the console, so every character that reaches the
 + * console (kernel printf and /dev/console writes of daemons, both through
 + * _cnputs) is also kept in a 4 MiB ring, and once the partition is known
@@ -35,7 +35,7 @@
 + *   "FUXI-LOG" | u32 version 1 | u32 ring size | u64 total bytes written
 + *   | u64 flush sequence
 + * ring offset of byte n = n % ring size. Read it from a recovery with
-+ * tools/fuxi-log-pull.sh. Disabled with boot-arg sweetlog=0.
++ * tools/fuxi-log-pull.sh. Disabled with boot-arg fuxilog=0.
 + */
 +#define FUXI_LOG_SIZE          (4u << 20)
 +#define FUXI_LOG_BLOCKS        (1 + FUXI_LOG_SIZE / UFS_BLOCK)
@@ -75,7 +75,7 @@
 +	printf("FUXI LOG: console log to the last %u KiB of the partition (block 0x%llx)\n",
 +	    FUXI_LOG_BLOCKS * UFS_BLOCK >> 10, base);
 +	for (;;) {
-+		(void)tsleep(&fuxi_log_chan, PZERO, "sweetlog", hz);
++		(void)tsleep(&fuxi_log_chan, PZERO, "fuxilog", hz);
 +		uint64_t total = os_atomic_load(&fuxi_log_total, relaxed);
 +		if (total == flushed) {
 +			continue;
@@ -121,7 +121,7 @@
 +	uint32_t on = 1;
 +	thread_t thread;
 +
-+	PE_parse_boot_argn("sweetlog", &on, sizeof(on));
++	PE_parse_boot_argn("fuxilog", &on, sizeof(on));
 +	if (!on || !su.writable || su.nblocks < 2 * FUXI_LOG_BLOCKS) {
 +		return;
 +	}

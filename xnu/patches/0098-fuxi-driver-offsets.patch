@@ -1,7 +1,7 @@
 fuxi: retarget the inherited driver bases from topaz to fuxi
 
 The touch, keys and USB drivers still carry SM6225 (topaz) MMIO bases.  Three
-of them were being worked around at boot (sweettouch=0 / sweetkeys=0), which
+of them were being worked around at boot (fuxitouch=0 / fuxikeys=0), which
 means the hardware is gated off rather than driven correctly.
 
 Every base below comes from the live fuxi device dump (device-dumps/iomem.txt)
@@ -21,7 +21,7 @@ builds for the board it was written for.
 Deliberately NOT claimed: the register layouts.  SM8550's QUPv3 wrapper/RCG
 offsets and the SPMI arbiter core/observer offsets are not yet established, so
 those constants keep the SM6225 values with a TODO.  Address-correct is not the
-same as layout-correct -- do not re-enable sweettouch/sweetkeys on fuxi on the
+same as layout-correct -- do not re-enable fuxitouch/fuxikeys on fuxi on the
 strength of this patch alone.
 
 diff --git a/bsd/dev/fuxi_touch.c b/bsd/dev/fuxi_touch.c
@@ -42,7 +42,7 @@ diff --git a/bsd/dev/fuxi_touch.c b/bsd/dev/fuxi_touch.c
 + * tile bases point at the same window and the GPIO number selects the pin.
 + * TOUCH_GCC_VOTE / TOUCH_RCG below are still the SM6225 offsets -- the
 + * QUPv3 wrapper vote and SE4 RCG offsets on SM8550 are NOT yet established,
-+ * so do not enable sweettouch on fuxi until they are.
++ * so do not enable fuxitouch on fuxi until they are.
 + */
 +#define TOUCH_SE_PA      0x00a90000u /* qupv3_se4_spi */
 +#define TOUCH_GCC_PA     0x00100000u /* 100000.clock-controller */

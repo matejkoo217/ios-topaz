@@ -166,9 +166,9 @@
 +		return;
 +	}
 +	keys_started = true;
-+	(void)PE_parse_boot_argn("sweetkeys", &enabled, sizeof(enabled));
++	(void)PE_parse_boot_argn("fuxikeys", &enabled, sizeof(enabled));
 +	if (!enabled) {
-+		printf("FUXI KEYS: disabled (sweetkeys=0)\n");
++		printf("FUXI KEYS: disabled (fuxikeys=0)\n");
 +		return;
 +	}
 +	keys_core = ml_io_map(KEYS_CORE_PA, 0x2000);
@@ -693,10 +693,10 @@
 +	(void)arg;
 +	(void)result;
 +	/*
-+	 * Start late (boot-arg sweettouchdelay, seconds): if the bus access
++	 * Start late (boot-arg fuxitouchdelay, seconds): if the bus access
 +	 * below hangs the SoC, the persistent log and the GUI got there first.
 +	 */
-+	(void)PE_parse_boot_argn("sweettouchdelay", &delay_s, sizeof(delay_s));
++	(void)PE_parse_boot_argn("fuxitouchdelay", &delay_s, sizeof(delay_s));
 +	printf("FUXI TOUCH: starting in %u s\n", delay_s);
 +	touch_wait(delay_s * 1000u);
 +	printf("FUXI TOUCH: mapping GCC/TLMM/SE7\n");
@@ -772,10 +772,10 @@
 +		return;
 +	}
 +	st.started = true;
-+	(void)PE_parse_boot_argn("sweettouch", &enabled, sizeof(enabled));
-+	(void)PE_parse_boot_argn("sweettouchirq", &st.irq_hint, sizeof(st.irq_hint));
++	(void)PE_parse_boot_argn("fuxitouch", &enabled, sizeof(enabled));
++	(void)PE_parse_boot_argn("fuxitouchirq", &st.irq_hint, sizeof(st.irq_hint));
 +	if (!enabled) {
-+		printf("FUXI TOUCH: disabled (sweettouch=0)\n");
++		printf("FUXI TOUCH: disabled (fuxitouch=0)\n");
 +		return;
 +	}
 +	kern_return_t kr = kernel_thread_start(touch_thread, NULL, &thread);

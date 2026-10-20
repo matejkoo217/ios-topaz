@@ -163,8 +163,8 @@
  	printf("FUXI LOG: console log to the last %u KiB of the partition (block 0x%llx)\n",
  	    FUXI_LOG_BLOCKS * UFS_BLOCK >> 10, base);
  	for (;;) {
--		(void)tsleep(&fuxi_log_chan, PZERO, "sweetlog", hz);
-+		(void)tsleep(&fuxi_log_chan, PZERO, "sweetlog", hz * (int)fuxi_log_secs);
+-		(void)tsleep(&fuxi_log_chan, PZERO, "fuxilog", hz);
++		(void)tsleep(&fuxi_log_chan, PZERO, "fuxilog", hz * (int)fuxi_log_secs);
  		uint64_t total = os_atomic_load(&fuxi_log_total, relaxed);
  		if (total == flushed) {
  			continue;

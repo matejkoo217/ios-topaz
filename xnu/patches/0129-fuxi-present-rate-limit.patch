@@ -4,7 +4,7 @@ The copy path moves the whole panel on every present: 1080x2400x4 = 10.4 MB of m
 plus the same again in cache cleaning, at ~23 presents/s.  That is roughly 480 MB/s of
 work on one core, to animate a progress bar, while the boot is waiting on daemons.
 
-Presents are now rate limited to sweetfb_fps (default 15).  A boot screen does not need
+Presents are now rate limited to fuxifb_fps (default 15).  A boot screen does not need
 more than that to look alive, and the CPU it frees is CPU the boot actually needs.
 
 Harness: applied=128 skipped=0.
@@ -17,7 +17,7 @@ Harness: applied=128 skipped=0.
 +	 * The copy path moves the whole panel every present: 1080x2400x4 = 10.4 MB of
 +	 * memcpy plus the same again in cache cleaning, at whatever rate the compositor
 +	 * manages (~23/s observed).  That is ~480 MB/s of work on one core to animate a
-+	 * boot screen.  Cap the rate: the panel does not need more than sweetfb_fps
++	 * boot screen.  Cap the rate: the panel does not need more than fuxifb_fps
 +	 * (default 15) updates per second to look alive, and the CPU is better spent on
 +	 * the daemons the boot is actually waiting for.
 +	 */
@@ -30,7 +30,7 @@ Harness: applied=128 skipped=0.
 +			int fps = 15;
 +
 +			fuxi_rate_init = true;
-+			if (!PE_parse_boot_argn("sweetfb_fps", &fps, sizeof(fps))) {
++			if (!PE_parse_boot_argn("fuxifb_fps", &fps, sizeof(fps))) {
 +				fps = 15;
 +			}
 +			fuxi_min_gap_ns = (fps > 0) ? (1000000000ull / (uint64_t)fps) : 0;

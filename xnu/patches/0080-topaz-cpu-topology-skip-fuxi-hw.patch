@@ -13,17 +13,17 @@ index 6b926fe..40044c8 100644
 +	/*
 +	 * Input drivers (HID services in iokit/Kernel/arm/hid/FuxiHID.cpp).
 +	 * They still poke SM7150 MMIO (SPMI, GENI SE7, DWC3 at 0xa600000); on
-+	 * topaz that faults or hangs, so they only run with sweethw=1 until
++	 * topaz that faults or hangs, so they only run with fuxihw=1 until
 +	 * they are ported.
 +	 */
 +	int hw = 0;
-+	(void)PE_parse_boot_argn("sweethw", &hw, sizeof(hw));
++	(void)PE_parse_boot_argn("fuxihw", &hw, sizeof(hw));
 +	if (hw == 1) {
 +		fuxi_keys_init();
 +		fuxi_touch_init();
 +		fuxi_usb_probe();
 +	} else {
-+		printf("FUXI UFS: keys/touch/USB skipped (fuxi, sweethw=0)\n");
++		printf("FUXI UFS: keys/touch/USB skipped (fuxi, fuxihw=0)\n");
 +	}
  	return 0;
  }

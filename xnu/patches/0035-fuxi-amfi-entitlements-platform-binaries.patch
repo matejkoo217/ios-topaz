@@ -63,8 +63,8 @@
 +unsigned int fuxi_entitlements_count(const void *ent);
 +extern void osobject_release(void *object);
 +
-+/* boot-arg sweet_amfi_debug=1: log the entitlements attached to each signature. */
-+static TUNABLE(uint32_t, sweet_amfi_debug, "sweet_amfi_debug", 0);
++/* boot-arg fuxi_amfi_debug=1: log the entitlements attached to each signature. */
++static TUNABLE(uint32_t, fuxi_amfi_debug, "fuxi_amfi_debug", 0);
 +
 +/* The entitlements object of a process's main binary, or NULL. */
 +static void *
@@ -134,7 +134,7 @@
 +		    csblob_get_identity(code_signing_blob), xml_len);
 +		return;
 +	}
-+	if (sweet_amfi_debug) {
++	if (fuxi_amfi_debug) {
 +		/* The test keys only exist in tools/mkinit.py test signatures. */
 +		printf("FUXI AMFI: %s: %u entitlements (test: bool %d string %d array %d)\n",
 +		    csblob_get_identity(code_signing_blob), fuxi_entitlements_count(ent),

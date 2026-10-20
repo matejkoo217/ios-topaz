@@ -1,11 +1,11 @@
-fuxi: 0125 -- sweetfb_copy: use the CPU copy path when the MDP one lies
+fuxi: 0125 -- fuxifb_copy: use the CPU copy path when the MDP one lies
 
 The panel shows a stale console frame while the compositor reports 9000 swaps: two grabs
 20 s apart differ by 21 pixels out of 162000.  directPresent() hands the surface to the
 display controller and returns success, so present() returns early and the CPU copy path
 below -- which writes into the buffer the panel is demonstrably scanning -- never runs.
 
-sweetfb_copy=1 skips the early return and forces the copy path.  With sweetfb_noconsole=1
+fuxifb_copy=1 skips the early return and forces the copy path.  With fuxifb_noconsole=1
 already muting console repaints, this is the combination that should put the composited UI
 on the panel instead of a frozen boot log.
 
@@ -20,13 +20,13 @@ Harness: applied=124 skipped=0.
 +	 * The MDP path teaches the display controller to scan out the composited
 +	 * surface, and on this port it reports success while the panel keeps showing
 +	 * whatever was in the boot framebuffer: 9000 swaps, a frames-identical panel.
-+	 * sweetfb_copy=1 skips it and uses the CPU copy path below, which writes into
++	 * fuxifb_copy=1 skips it and uses the CPU copy path below, which writes into
 +	 * the buffer the panel is demonstrably scanning.
 +	 */
 +	{
 +		int force_copy = 0;
 +
-+		(void)PE_parse_boot_argn("sweetfb_copy", &force_copy, sizeof(force_copy));
++		(void)PE_parse_boot_argn("fuxifb_copy", &force_copy, sizeof(force_copy));
 +		if (force_copy) {
 +			goto copy_path;
 +		}

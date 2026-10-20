@@ -48,7 +48,7 @@
 + * console ring (bsd/dev/fuxi_ufs.c) go as UDP datagrams to
 + * 192.168.7.1:5140 (on the PC: nc -ukl 5140). Starts with the last 64 KiB
 + * so the boot is included. Nothing here may print (it would feed itself).
-+ * Boot-arg sweetusblog=0 disables it.
++ * Boot-arg fuxiusblog=0 disables it.
 + */
 +extern uint32_t fuxi_log_copy(uint64_t *pos, char *out, uint32_t max);
 +extern uint64_t fuxi_log_position(void);
@@ -99,7 +99,7 @@
  		thread_deallocate(thread);
  	}
 +	int livelog = 1;
-+	PE_parse_boot_argn("sweetusblog", &livelog, sizeof(livelog));
++	PE_parse_boot_argn("fuxiusblog", &livelog, sizeof(livelog));
 +	if (livelog && ud.ifp != NULL && kernel_thread_start(ud_log_thread, NULL, &thread) == KERN_SUCCESS) {
 +		thread_deallocate(thread);
 +	}

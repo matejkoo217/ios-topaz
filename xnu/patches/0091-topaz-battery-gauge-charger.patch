@@ -346,8 +346,8 @@ index 9969739..809857b 100644
  		return false;
  	}
 -	int real = 0;
-+	int real = 1;   /* topaz: real gauge by default; sweetbattery=0 for the static fallback */
- 	(void)PE_parse_boot_argn("sweetbattery", &real, sizeof(real));
++	int real = 1;   /* topaz: real gauge by default; fuxibattery=0 for the static fallback */
+ 	(void)PE_parse_boot_argn("fuxibattery", &real, sizeof(real));
 -	fReal = real == 1 && fuxi_spmi_init() == 0;
 +	fReal = real == 1 && fuxi_i2c1_init() == 0;
  	/* Publish a complete source BEFORE registerService wakes powerd. */

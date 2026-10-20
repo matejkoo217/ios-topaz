@@ -164,7 +164,7 @@ index 03defe6..03064d7 100644
  	}
  	touch_wr(st.se, 0xe18, 0); /* no GSI events */
 @@ -558,37 +564,31 @@ touch_thread(void *arg, wait_result_t result)
- 	(void)PE_parse_boot_argn("sweettouchdelay", &delay_s, sizeof(delay_s));
+ 	(void)PE_parse_boot_argn("fuxitouchdelay", &delay_s, sizeof(delay_s));
  	printf("FUXI TOUCH: starting in %u s\n", delay_s);
  	touch_wait(delay_s * 1000u);
 -	printf("FUXI TOUCH: mapping GCC/TLMM/SE7\n");
@@ -238,22 +238,22 @@ index 40044c8..af6e35c 100644
  	/*
  	 * Input drivers (HID services in iokit/Kernel/arm/hid/FuxiHID.cpp).
 -	 * They still poke SM7150 MMIO (SPMI, GENI SE7, DWC3 at 0xa600000); on
--	 * topaz that faults or hangs, so they only run with sweethw=1 until
+-	 * topaz that faults or hangs, so they only run with fuxihw=1 until
 -	 * they are ported.
-+	 * Touch is ported to topaz (FT5452 on QUP0 SE2; sweettouch=0 disables
++	 * Touch is ported to topaz (FT5452 on QUP0 SE2; fuxitouch=0 disables
 +	 * it). Keys and USB still poke SM7150 MMIO (SPMI, DWC3 at 0xa600000);
-+	 * on topaz that faults or hangs, so they only run with sweethw=1.
++	 * on topaz that faults or hangs, so they only run with fuxihw=1.
  	 */
  	int hw = 0;
- 	(void)PE_parse_boot_argn("sweethw", &hw, sizeof(hw));
+ 	(void)PE_parse_boot_argn("fuxihw", &hw, sizeof(hw));
 +	fuxi_touch_init();
  	if (hw == 1) {
  		fuxi_keys_init();
 -		fuxi_touch_init();
  		fuxi_usb_probe();
  	} else {
--		printf("FUXI UFS: keys/touch/USB skipped (fuxi, sweethw=0)\n");
-+		printf("FUXI UFS: keys/USB skipped (fuxi, sweethw=0)\n");
+-		printf("FUXI UFS: keys/touch/USB skipped (fuxi, fuxihw=0)\n");
++		printf("FUXI UFS: keys/USB skipped (fuxi, fuxihw=0)\n");
  	}
  	return 0;
  }

@@ -6,7 +6,7 @@ index 03064d7..c810ee9 100644
  	uint32_t irq_status, irq_last, active;
  	unsigned sent, got;
  	int x[TOUCH_MAX], y[TOUCH_MAX];
-+	/* sweettouchdiag: last step reached and the values seen on the way */
++	/* fuxitouchdiag: last step reached and the values seen on the way */
 +	int diag;
 +	const char *stage;
 +	uint32_t d_vote, d_cfg, d_cbcr, d_fw, d_status, d_hwtx, d_hwrx;
@@ -43,7 +43,7 @@ index 03064d7..c810ee9 100644
  	    fw, (fw >> 8) & 0xffu, touch_rd(st.se, SE_STATUS), tx, rx,
  	    touch_rd(st.se, 0x908));
 @@ -564,6 +577,7 @@ touch_thread(void *arg, wait_result_t result)
- 	(void)PE_parse_boot_argn("sweettouchdelay", &delay_s, sizeof(delay_s));
+ 	(void)PE_parse_boot_argn("fuxitouchdelay", &delay_s, sizeof(delay_s));
  	printf("FUXI TOUCH: starting in %u s\n", delay_s);
  	touch_wait(delay_s * 1000u);
 +	st.stage = "map";
@@ -111,9 +111,9 @@ index 03064d7..c810ee9 100644
  }
 @@ -647,6 +681,7 @@ fuxi_touch_init(void)
  	st.started = true;
- 	(void)PE_parse_boot_argn("sweettouch", &enabled, sizeof(enabled));
- 	(void)PE_parse_boot_argn("sweettouchirq", &st.irq_hint, sizeof(st.irq_hint));
-+	(void)PE_parse_boot_argn("sweettouchdiag", &st.diag, sizeof(st.diag));
+ 	(void)PE_parse_boot_argn("fuxitouch", &enabled, sizeof(enabled));
+ 	(void)PE_parse_boot_argn("fuxitouchirq", &st.irq_hint, sizeof(st.irq_hint));
++	(void)PE_parse_boot_argn("fuxitouchdiag", &st.diag, sizeof(st.diag));
  	if (!enabled) {
- 		printf("FUXI TOUCH: disabled (sweettouch=0)\n");
+ 		printf("FUXI TOUCH: disabled (fuxitouch=0)\n");
  		return;

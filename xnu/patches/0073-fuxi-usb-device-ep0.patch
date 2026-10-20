@@ -24,8 +24,8 @@
  	uint32_t gdscr, cbcr[sizeof(usb_cbcr) / sizeof(usb_cbcr[0])];
  	bool clocks_on = true;
  
-+	/* sweetusb=0 off, 1 (default) report state only, 2 also start the USB device */
- 	PE_parse_boot_argn("sweetusb", &enabled, sizeof(enabled));
++	/* fuxiusb=0 off, 1 (default) report state only, 2 also start the USB device */
+ 	PE_parse_boot_argn("fuxiusb", &enabled, sizeof(enabled));
  	if (!enabled) {
  		return;
 @@ -91,6 +101,9 @@
@@ -45,7 +45,7 @@
 +
 +/*
 + * Step 2: USB device mode with only the default control endpoint, enough
-+ * for the host to enumerate the phone (boot-arg sweetusb=2). ABL leaves
++ * for the host to enumerate the phone (boot-arg fuxiusb=2). ABL leaves
 + * the DWC3 powered, clocked, in device mode and halted, with the PHY set
 + * up, so only the device controller is restarted: soft reset, an event
 + * buffer in our memory, endpoint 0, run. Events are polled from a kernel

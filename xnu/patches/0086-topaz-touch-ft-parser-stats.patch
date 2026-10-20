@@ -6,7 +6,7 @@ index c810ee9..61f7769 100644
  	uint32_t d_vote, d_cfg, d_cbcr, d_fw, d_status, d_hwtx, d_hwrx;
  	int d_fe1, d_fe2, d_ge;
  	uint8_t d_fid1, d_fid2;
-+	/* sweettouchdiag=2: polling statistics */
++	/* fuxitouchdiag=2: polling statistics */
 +	unsigned s_frames, s_errs, s_down, s_up, s_maxn;
 +	int s_lasterr, s_lastx, s_lasty;
 +	uint8_t s_raw[12];

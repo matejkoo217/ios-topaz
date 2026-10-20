@@ -2,7 +2,7 @@
 """fuxi-cmd -- talk to the phone's kernel command channel over USB (UDP 5141).
 
 No root needed: this is a plain datagram to the phone's ECM address, not an
-AF_PACKET frame.  The phone must have enumerated (sweethw=1 sweetusb=2) and the
+AF_PACKET frame.  The phone must have enumerated (fuxihw=1 fuxiusb=2) and the
 host interface must own 192.168.7.1/24:
 
   sudo ip link set enx02005e77ee01 up

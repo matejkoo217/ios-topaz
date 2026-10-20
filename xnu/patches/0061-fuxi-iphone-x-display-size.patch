@@ -12,7 +12,7 @@
 + * rdar://45025538 bar for 360x800 points). The display is therefore
 + * presented as the iPhone X panel, 1125x2436 (375x812 points @3x), and the
 + * centered 1080x2400 part of it is shown on the 1080x2400 panel.
-+ * Boot-arg sweetfb_native=1 presents the real panel size instead.
++ * Boot-arg fuxifb_native=1 presents the real panel size instead.
 + */
 +#define FUXI_FB_LOGICAL_W              1125
 +#define FUXI_FB_LOGICAL_H              2436
@@ -33,7 +33,7 @@
  		return false;
  	}
 +	int native = 0;
-+	PE_parse_boot_argn("sweetfb_native", &native, sizeof(native));
++	PE_parse_boot_argn("fuxifb_native", &native, sizeof(native));
 +	fLogicalW = fWidth;
 +	fLogicalH = fHeight;
 +	if (!native && fWidth <= FUXI_FB_LOGICAL_W && fHeight <= FUXI_FB_LOGICAL_H) {
@@ -102,7 +102,7 @@
  		return false;
  	}
 +	int native = 0;
-+	PE_parse_boot_argn("sweetfb_native", &native, sizeof(native));
++	PE_parse_boot_argn("fuxifb_native", &native, sizeof(native));
 +	fLogicalW = native ? 1080 : 1125;
 +	fLogicalH = native ? 2400 : 2436;
 +	fOffX = (fLogicalW - 1080) / 2;

@@ -1,10 +1,10 @@
-fuxi: 0133 -- sweetnoexec: stub named binaries instead of letting them crash-loop
+fuxi: 0133 -- fuxinoexec: stub named binaries instead of letting them crash-loop
 
 CommCenter aborts in a loop (SIGABRT code 0x6, SIGSEGV sig 11 code 0x100000001, code 0xb)
 and fairplayd.H2 and bluetoothd cycle with it, exactly where the boot sits at 17%.  This
 port has no baseband and no SEP, so those daemons have nothing to talk to.
 
-sweetnoexec=name[,name...] makes the exec complete and then stops the process.  A refused
+fuxinoexec=name[,name...] makes the exec complete and then stops the process.  A refused
 exec sends launchd into a retry loop; a stopped process looks alive to launchd, never
 crashes, never respawns and uses no CPU, so the boot stops paying for it.  The signal lands
 on the return to user mode, after the exec finishes.
@@ -56,7 +56,7 @@ Harness: applied=131 skipped=0.
  			}
  #if defined(ARM64_BOARD_CONFIG_FUXI)
 +			/*
-+			 * sweetnoexec=name[,name...] refuses the named binaries.
++			 * fuxinoexec=name[,name...] refuses the named binaries.
 +			 *
 +			 * Diagnostic, not a fix: telephony and DRM daemons abort in a loop on
 +			 * this port (no baseband, no SEP), and the question is whether their
@@ -66,7 +66,7 @@ Harness: applied=131 skipped=0.
 +			{
 +				char deny[160] = "";
 +
-+				if (PE_parse_boot_argn("sweetnoexec", deny, sizeof(deny)) &&
++				if (PE_parse_boot_argn("fuxinoexec", deny, sizeof(deny)) &&
 +				    deny[0] != '\0' && fuxi_exec_denied(p->p_name, deny)) {
 +					/*
 +					 * Stub, do not refuse: a refused exec sends launchd into a

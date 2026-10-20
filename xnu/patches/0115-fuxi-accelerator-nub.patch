@@ -11,7 +11,7 @@ client logs every selector with its scalar/structure sizes.  It does not render 
 does not pretend to: every method answers kIOReturnUnsupported, so what comes back
 is a list of what CoreAnimation wanted rather than a silent zero.
 
-Gated on sweetgfx=1 -- a boot without it behaves exactly as before, which matters
+Gated on fuxigfx=1 -- a boot without it behaves exactly as before, which matters
 while the graphics stack is still a question rather than a plan.
 
 Harness: applied=114 skipped=0.
@@ -35,7 +35,7 @@ Harness: applied=114 skipped=0.
 + * client logs every selector it is asked for.  It does not render and it does not
 + * pretend to: every method answers kIOReturnUnsupported.  The point is the same as
 + * the AKS trace -- find out what CoreAnimation actually wants before writing it.
-+ * Gated on sweetgfx=1 so a boot can be taken without this in the way.
++ * Gated on fuxigfx=1 so a boot can be taken without this in the way.
 + */
 +class IOAcceleratorESUserClient : public IOUserClient {
 +	OSDeclareDefaultStructors(IOAcceleratorESUserClient);
@@ -124,7 +124,7 @@ Harness: applied=114 skipped=0.
  	registerService();
 +	{
 +		int gfx = 0;
-+		(void)PE_parse_boot_argn("sweetgfx", &gfx, sizeof(gfx));
++		(void)PE_parse_boot_argn("fuxigfx", &gfx, sizeof(gfx));
 +		if (gfx) {
 +			IOAcceleratorES *acc = new IOAcceleratorES;
 +			if (acc != NULL && acc->init()) {

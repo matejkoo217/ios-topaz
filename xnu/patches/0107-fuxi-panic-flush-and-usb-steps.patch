@@ -4,7 +4,7 @@ Two blind spots, one patch.
 
 1. Panics left no log at all.  The ring on userdata is written by a kernel thread
    every ufslogsecs; a panic halts every other thread and CPU, so the ring keeps
-   whatever the *previous* boot flushed.  The sweethw=1 abort is a case in point:
+   whatever the *previous* boot flushed.  The fuxihw=1 abort is a case in point:
    it kills the boot in the same second the log starts, ufslogsecs=1 included, so
    the ring still read 181267 bytes from the boot before it.  panic() now calls
    fuxi_log_flush_panic(), which writes the last 16 KiB of the ring through a
@@ -14,14 +14,14 @@ Two blind spots, one patch.
 2. fuxi_usb_probe() died before its first print.  It now says each step
    ("probe start", "mapping DWC3", "mapping QUSB2 PHY", "reading GCC ...") so the
    ring names the access that faults, and the GCC clock/GDSC probe is behind
-   sweetusbgcc (default 0) instead of being unconditional.
+   fuxiusbgcc (default 0) instead of being unconditional.
 
    Why the GCC probe is off by default: those CBCR/GDSC offsets are copied from
    gcc-sdmmagpie.c, which is SM7150, not SM8550.  An offset the SoC does not
    implement answers with an AXI decode error, and that is a *synchronous
    external abort* -- exactly the esr 0x96000010 in the panic.  ABL has just run
    this controller for fastboot, so its clocks are already up; going straight to
-   DWC3 is both the safer and the intended state.  sweetusbgcc=1 restores the old
+   DWC3 is both the safer and the intended state.  fuxiusbgcc=1 restores the old
    probing for anyone who wants the register values printed.
 
 Harness: applied=106 skipped=0.
@@ -117,8 +117,8 @@ Harness: applied=106 skipped=0.
  
 +	int gccprobe = 0;
 +
- 	/* sweetusb=0 off, 1 (default) report state only, 2 also start the USB device */
- 	PE_parse_boot_argn("sweetusb", &enabled, sizeof(enabled));
+ 	/* fuxiusb=0 off, 1 (default) report state only, 2 also start the USB device */
+ 	PE_parse_boot_argn("fuxiusb", &enabled, sizeof(enabled));
 -	if (!enabled) {
 -		return;
 -	}
@@ -140,15 +140,15 @@ Harness: applied=106 skipped=0.
 -		printf("FUXI USB: controller unpowered or unclocked; DWC3 not read\n");
 -		return;
 +	/*
-+	 * sweetusbgcc=1 reads the GCC clock/GDSC status before touching DWC3.  It is
++	 * fuxiusbgcc=1 reads the GCC clock/GDSC status before touching DWC3.  It is
 +	 * off by default because those CBCR/GDSC offsets came from gcc-sdmmagpie.c
 +	 * (SM7150): an offset SM8550 does not implement answers with an AXI decode
 +	 * error, i.e. a synchronous external abort, which is what killed the first
-+	 * sweethw=1 boot before it could print a single FUXI USB line.  ABL has just
++	 * fuxihw=1 boot before it could print a single FUXI USB line.  ABL has just
 +	 * used this controller for fastboot, so its clocks are up; go straight there.
 +	 */
-+	(void)PE_parse_boot_argn("sweetusbgcc", &gccprobe, sizeof(gccprobe));
-+	printf("FUXI USB: probe start (sweetusb=%d sweetusbgcc=%d)\n", enabled, gccprobe);
++	(void)PE_parse_boot_argn("fuxiusbgcc", &gccprobe, sizeof(gccprobe));
++	printf("FUXI USB: probe start (fuxiusb=%d fuxiusbgcc=%d)\n", enabled, gccprobe);
 +	vm_offset_t gcc = 0;
 +	if (gccprobe) {
 +		printf("FUXI USB: reading GCC 0x%x GDSCR 0x%x\n", GCC_PA, GCC_USB30_PRIM_GDSCR);

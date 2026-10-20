@@ -116,10 +116,10 @@ index 61f7769..a9b928b 100644
 @@ -703,6 +717,7 @@ fuxi_touch_init(void)
  	}
  	st.started = true;
- 	(void)PE_parse_boot_argn("sweettouch", &enabled, sizeof(enabled));
+ 	(void)PE_parse_boot_argn("fuxitouch", &enabled, sizeof(enabled));
 +	st.irq_hint = 1; /* topaz: read on IRQ GPIO80 low, while touching, else every 100 ms */
- 	(void)PE_parse_boot_argn("sweettouchirq", &st.irq_hint, sizeof(st.irq_hint));
- 	(void)PE_parse_boot_argn("sweettouchdiag", &st.diag, sizeof(st.diag));
+ 	(void)PE_parse_boot_argn("fuxitouchirq", &st.irq_hint, sizeof(st.irq_hint));
+ 	(void)PE_parse_boot_argn("fuxitouchdiag", &st.diag, sizeof(st.diag));
  	if (!enabled) {
 diff --git a/bsd/dev/fuxi_ufs.c b/bsd/dev/fuxi_ufs.c
 index af6e35c..b7be070 100644
@@ -129,23 +129,23 @@ index af6e35c..b7be070 100644
  	fuxi_sample_start();
  	/*
  	 * Input drivers (HID services in iokit/Kernel/arm/hid/FuxiHID.cpp).
--	 * Touch is ported to topaz (FT5452 on QUP0 SE2; sweettouch=0 disables
+-	 * Touch is ported to topaz (FT5452 on QUP0 SE2; fuxitouch=0 disables
 -	 * it). Keys and USB still poke SM7150 MMIO (SPMI, DWC3 at 0xa600000);
--	 * on topaz that faults or hangs, so they only run with sweethw=1.
+-	 * on topaz that faults or hangs, so they only run with fuxihw=1.
 +	 * Touch (FT5452 on QUP0 SE2) and keys (PM6125 over SPMI) are ported to
-+	 * topaz; sweettouch=0 / sweetkeys=0 disable them. USB still pokes SM7150
-+	 * MMIO (DWC3 at 0xa600000), so it only runs with sweethw=1.
++	 * topaz; fuxitouch=0 / fuxikeys=0 disable them. USB still pokes SM7150
++	 * MMIO (DWC3 at 0xa600000), so it only runs with fuxihw=1.
  	 */
  	int hw = 0;
- 	(void)PE_parse_boot_argn("sweethw", &hw, sizeof(hw));
+ 	(void)PE_parse_boot_argn("fuxihw", &hw, sizeof(hw));
  	fuxi_touch_init();
 +	fuxi_keys_init();
  	if (hw == 1) {
 -		fuxi_keys_init();
  		fuxi_usb_probe();
  	} else {
--		printf("FUXI UFS: keys/USB skipped (fuxi, sweethw=0)\n");
-+		printf("FUXI UFS: USB skipped (fuxi, sweethw=0)\n");
+-		printf("FUXI UFS: keys/USB skipped (fuxi, fuxihw=0)\n");
++		printf("FUXI UFS: USB skipped (fuxi, fuxihw=0)\n");
  	}
  	return 0;
  }

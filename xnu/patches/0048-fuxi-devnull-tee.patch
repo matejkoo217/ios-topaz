@@ -9,9 +9,9 @@
 + * SWEET: daemons started by launchd write stdout/stderr to /dev/null, and
 + * pointing a launchd job at /dev/console stops it from launching at all
 + * (backboardd, v8 image). Instead, what the processes named in boot-arg
-+ * sweetnull (comma separated, default "backboardd,SpringBoard") write to
++ * fuxinull (comma separated, default "backboardd,SpringBoard") write to
 + * /dev/null goes to the console (and so to the persistent log) as
-+ * "|name| text". sweetnull=- turns it off.
++ * "|name| text". fuxinull=- turns it off.
 + */
 +static char fuxi_null_names[128];
 +static int fuxi_null_parsed;
@@ -20,7 +20,7 @@
 +fuxi_null_tee(char *name, size_t len)
 +{
 +	if (!fuxi_null_parsed) {
-+		if (!PE_parse_boot_argn("sweetnull", fuxi_null_names, sizeof(fuxi_null_names))) {
++		if (!PE_parse_boot_argn("fuxinull", fuxi_null_names, sizeof(fuxi_null_names))) {
 +			strlcpy(fuxi_null_names, "backboardd,SpringBoard", sizeof(fuxi_null_names));
 +		}
 +		fuxi_null_parsed = 1;

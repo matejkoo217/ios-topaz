@@ -7,12 +7,12 @@ index a62416c..2094443 100644
  		if (args->scalarInputCount >= 1) {
  			bool off = args->scalarInput[0] == 0;
 +			/*
-+			 * topaz: sweetfb_stayon=1 ignores display-off requests (auto-lock)
++			 * topaz: fuxifb_stayon=1 ignores display-off requests (auto-lock)
 +			 * while there are no buttons or touch to wake the panel again.
 +			 */
 +			int stayon = 0;
-+			if (off && PE_parse_boot_argn("sweetfb_stayon", &stayon, sizeof(stayon)) && stayon) {
-+				IOLog("FUXI FB: display off ignored (sweetfb_stayon)\n");
++			if (off && PE_parse_boot_argn("fuxifb_stayon", &stayon, sizeof(stayon)) && stayon) {
++				IOLog("FUXI FB: display off ignored (fuxifb_stayon)\n");
 +				break;
 +			}
  			IOLockLock(fFB->fLock);

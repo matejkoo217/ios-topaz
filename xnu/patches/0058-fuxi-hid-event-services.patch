@@ -20609,7 +20609,7 @@
 + *   FuxiHIDTouch    the built-in touch screen (digitizer collections)
 + *
 + * Hardware drivers feed them through the C entry points fuxi_hid_key()
-+ * and fuxi_hid_touch(). Boot-arg sweethidtest=N (seconds) presses Home
++ * and fuxi_hid_touch(). Boot-arg fuxihidtest=N (seconds) presses Home
 + * every N seconds, to test the event path without input hardware.
 + */
 +#include <IOKit/IOLib.h>
@@ -20970,7 +20970,7 @@
 +	if (!IOHIDEventService::start(provider)) {
 +		return false;
 +	}
-+	if (PE_parse_boot_argn("sweethidtest", &fTestSecs, sizeof(fTestSecs)) && fTestSecs) {
++	if (PE_parse_boot_argn("fuxihidtest", &fTestSecs, sizeof(fTestSecs)) && fTestSecs) {
 +		fTest = IOTimerEventSource::timerEventSource(this, &FuxiHIDButtons::testFired);
 +		if (fTest && _hidWorkLoop->addEventSource(fTest) == kIOReturnSuccess) {
 +			fTest->setTimeoutMS(fTestSecs * 1000);

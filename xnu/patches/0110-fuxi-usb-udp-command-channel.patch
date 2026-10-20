@@ -191,7 +191,7 @@ Harness: applied=109 skipped=0.
  {
 @@ -895,6 +1034,17 @@
   * so the boot is included. Nothing here may print (it would feed itself).
-  * Boot-arg sweetusblog=0 disables it.
+  * Boot-arg fuxiusblog=0 disables it.
   */
 +static void
 +ud_cmd_start(void)

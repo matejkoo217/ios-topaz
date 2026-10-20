@@ -4,11 +4,11 @@ Two failures keep costing a human trip to the phone: the host goes away (or USB
 never comes up) and the boot sits there forever, and a panic halts the SoC where
 only a hand can reach it.  Both now end in a PSCI reset the device performs alone.
 
-  sweetdeadman=<seconds>   reset when no host command has arrived for that long
+  fuxideadman=<seconds>   reset when no host command has arrived for that long
                            (default 600).  A conversation keeps it alive; silence
                            ends the boot, so nothing stale outlives the session
                            watching it.  0 disables.
-  sweetpanicreset=0        keep halt-on-panic for a hands-on debugging session;
+  fuxipanicreset=0        keep halt-on-panic for a hands-on debugging session;
                            default is to flush the ring, then reset, so a crashed
                            phone returns to something the host can reach.
 
@@ -34,8 +34,8 @@ Harness: applied=116 skipped=0.
  
 @@ -95,6 +96,7 @@
  	 */
- 	(void)PE_parse_boot_argn("sweetusbgcc", &gccprobe, sizeof(gccprobe));
- 	printf("FUXI USB: probe start (sweetusb=%d sweetusbgcc=%d)\n", enabled, gccprobe);
+ 	(void)PE_parse_boot_argn("fuxiusbgcc", &gccprobe, sizeof(gccprobe));
+ 	printf("FUXI USB: probe start (fuxiusb=%d fuxiusbgcc=%d)\n", enabled, gccprobe);
 +	fuxi_deadman_start();     /* arms the reset-if-abandoned timer */
  	vm_offset_t gcc = 0;
  	if (gccprobe) {
@@ -52,11 +52,11 @@ Harness: applied=116 skipped=0.
 + * it.  Both now end in a reset the SoC performs itself.
 + *
 + *  - A supervisor thread resets over PSCI when no host command has arrived for
-+ *    sweetdeadman seconds (default 600, 0 disables).  A conversation keeps it
++ *    fuxideadman seconds (default 600, 0 disables).  A conversation keeps it
 + *    alive; silence ends it, so a stale boot cannot outlive the session watching
 + *    it.
 + *  - panic() itself resets, after the ring flush, so a crashed phone comes back to
-+ *    something the host can reach instead of a frozen screen.  sweetpanicreset=0
++ *    something the host can reach instead of a frozen screen.  fuxipanicreset=0
 + *    keeps the old halt-on-panic behaviour for a debugging session.
 + *
 + * Neither survives a kernel that stops executing entirely -- that needs a hardware
@@ -119,7 +119,7 @@ Harness: applied=116 skipped=0.
 +	thread_t thread;
 +	uint32_t arg = FUXI_DEADMAN_DEFAULT_S;
 +
-+	if (!PE_parse_boot_argn("sweetdeadman", &arg, sizeof(arg))) {
++	if (!PE_parse_boot_argn("fuxideadman", &arg, sizeof(arg))) {
 +		arg = FUXI_DEADMAN_DEFAULT_S;
 +	}
 +	fuxi_deadman_s = arg;
@@ -140,7 +140,7 @@ Harness: applied=116 skipped=0.
 +{
 +	int enabled = 1;
 +
-+	if (!PE_parse_boot_argn("sweetpanicreset", &enabled, sizeof(enabled))) {
++	if (!PE_parse_boot_argn("fuxipanicreset", &enabled, sizeof(enabled))) {
 +		enabled = 1;
 +	}
 +	if (!enabled) {

@@ -87,7 +87,7 @@
 +	uint32_t gdscr, cbcr[sizeof(usb_cbcr) / sizeof(usb_cbcr[0])];
 +	bool clocks_on = true;
 +
-+	PE_parse_boot_argn("sweetusb", &enabled, sizeof(enabled));
++	PE_parse_boot_argn("fuxiusb", &enabled, sizeof(enabled));
 +	if (!enabled) {
 +		return;
 +	}
