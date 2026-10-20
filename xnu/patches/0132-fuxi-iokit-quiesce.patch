@@ -1,0 +1,50 @@
+fuxi: 0132 -- let IOKit quiesce (the busy hold that was never released)
+
+Port of upstream topaz 0128 to FUXI, which never got it: that fix is gated on
+ARM64_BOARD_CONFIG_SWEET and this board is FUXI.
+
+StartIOKitMatching() takes a registry-root busy count if OSKext::iokitDaemonAvailable(),
+to be released when the IOKit daemon reports that it launched.  On this board there is no
+kext daemon to launch, so nothing ever reports, nothing ever releases the count, and the
+registry root stays busy forever.  IOKit therefore never quiesces, configd's
+InterfaceNamer never says "quiet", and every daemon that waits for that -- SpringBoard
+included -- waits at boot.  Upstream's note is "wifid hung boot"; on this port it is the
+plateau at 17% where launchd is up and nothing else happens for minutes.
+
+FUXI takes no hold and releases none.
+
+Harness: applied=131 skipped=0.
+--- a/iokit/Kernel/IOService.cpp
++++ b/iokit/Kernel/IOService.cpp
+@@ -1200,7 +1200,9 @@
+ 	}
+ 	IOServiceTrace(IOSERVICE_KEXTD_READY, 0, 0, 0, 0);
+ 	startDeferredMatches();
++#if !defined(ARM64_BOARD_CONFIG_FUXI)
+ 	getServiceRoot()->adjustBusy(-1);
++#endif
+ 	IOService::publishUserResource(gIOResourceIOKitKey);
+ #endif /* !NO_KEXTD */
+ }
+--- a/iokit/Kernel/IOStartIOKit.cpp
++++ b/iokit/Kernel/IOStartIOKit.cpp
+@@ -188,7 +188,19 @@
+ 	}
+ 
+ #if !NO_KEXTD
++#if defined(ARM64_BOARD_CONFIG_FUXI)
++	/*
++	 * FUXI: no IOKit daemon ever reports that it launched (there is no kext to
++	 * manage on a SWEET-family board), so this hold was never released.  The
++	 * registry root stayed busy forever, IOKit never quiesced, configd's
++	 * InterfaceNamer never reported "quiet", and every daemon that waits for
++	 * that -- SpringBoard included -- sat through it at boot.  That is the
++	 * plateau: launchd up, bar at 17%, minutes of nothing.
++	 */
++	if (false) {
++#else
+ 	if (OSKext::iokitDaemonAvailable()) {
++#endif
+ 		/* Add a busy count to keep the registry busy until the IOKit daemon has
+ 		 * completely finished launching. This is decremented when the IOKit daemon
+ 		 * messages the kernel after the in-kernel linker has been
