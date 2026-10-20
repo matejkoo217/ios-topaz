@@ -1,0 +1,182 @@
+fuxi: 0117 -- the phone resets itself: dead-man timer, and panics reboot
+
+Two failures keep costing a human trip to the phone: the host goes away (or USB
+never comes up) and the boot sits there forever, and a panic halts the SoC where
+only a hand can reach it.  Both now end in a PSCI reset the device performs alone.
+
+  sweetdeadman=<seconds>   reset when no host command has arrived for that long
+                           (default 600).  A conversation keeps it alive; silence
+                           ends the boot, so nothing stale outlives the session
+                           watching it.  0 disables.
+  sweetpanicreset=0        keep halt-on-panic for a hands-on debugging session;
+                           default is to flush the ring, then reset, so a crashed
+                           phone returns to something the host can reach.
+
+The supervisor starts from fuxi_usb_probe(), not from the gadget, because it has to
+cover the case where the gadget never appears.  Timestamps come from mach time, and
+the last-command stamp is updated by both command channels.
+
+Limits, stated plainly: neither survives a kernel that stops executing entirely.
+That needs a hardware watchdog armed below XNU, and this board's watchdog base is in
+neither the ADT nor the sm8550.dtsi I have -- worth finding, but it is not this
+patch.
+
+Harness: applied=116 skipped=0.
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -36,6 +36,7 @@
+ 
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ void fuxi_usb_probe(void);
++void fuxi_deadman_start(void);   /* firmware-ish: runs from probe, not the gadget */
+ static void fuxi_usb_gadget_start(vm_offset_t dwc);
+ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+ 
+@@ -95,6 +96,7 @@
+ 	 */
+ 	(void)PE_parse_boot_argn("sweetusbgcc", &gccprobe, sizeof(gccprobe));
+ 	printf("FUXI USB: probe start (sweetusb=%d sweetusbgcc=%d)\n", enabled, gccprobe);
++	fuxi_deadman_start();     /* arms the reset-if-abandoned timer */
+ 	vm_offset_t gcc = 0;
+ 	if (gccprobe) {
+ 		printf("FUXI USB: reading GCC 0x%x GDSCR 0x%x\n", GCC_PA, GCC_USB30_PRIM_GDSCR);
+@@ -406,6 +408,110 @@
+  */
+ #define FUXI_PSCI_SYSTEM_RESET  0x84000009ULL
+ 
++/*
++ * Self-healing without hands on the device.
++ *
++ * Two failures have cost this port hours: the host goes away (or USB never comes
++ * up) and the phone sits there, and a panic halts it where only a human can reach
++ * it.  Both now end in a reset the SoC performs itself.
++ *
++ *  - A supervisor thread resets over PSCI when no host command has arrived for
++ *    sweetdeadman seconds (default 600, 0 disables).  A conversation keeps it
++ *    alive; silence ends it, so a stale boot cannot outlive the session watching
++ *    it.
++ *  - panic() itself resets, after the ring flush, so a crashed phone comes back to
++ *    something the host can reach instead of a frozen screen.  sweetpanicreset=0
++ *    keeps the old halt-on-panic behaviour for a debugging session.
++ *
++ * Neither survives a kernel that stops executing entirely -- that needs a hardware
++ * watchdog armed below XNU, and this board's watchdog base is not in the ADT.
++ */
++#define FUXI_DEADMAN_DEFAULT_S  600u
++#define FUXI_DEADMAN_CHECK_MS   15000u
++
++static volatile uint64_t fuxi_cmd_last_ns;      /* 0 = no host command yet */
++static uint32_t fuxi_deadman_s;
++
++static uint64_t
++fuxi_now_ns(void)
++{
++	uint64_t ns = 0;
++
++	absolutetime_to_nanoseconds(mach_absolute_time(), &ns);
++	return ns;
++}
++
++/* Called wherever a host command arrives (ethertype and UDP channels). */
++static void
++fuxi_cmd_touch(void)
++{
++	fuxi_cmd_last_ns = fuxi_now_ns();
++}
++
++static void
++fuxi_deadman_thread(__unused void *arg, __unused wait_result_t wr)
++{
++	uint64_t boot_ns = fuxi_now_ns();
++
++	for (;;) {
++		uint64_t now, last, idle_s;
++
++		ud_sleep_ms(FUXI_DEADMAN_CHECK_MS);
++		if (fuxi_deadman_s == 0) {
++			continue;
++		}
++		now = fuxi_now_ns();
++		last = fuxi_cmd_last_ns;
++		if (last == 0 || last < boot_ns) {
++			last = boot_ns;
++		}
++		idle_s = (now - last) / 1000000000ULL;
++		if (idle_s >= fuxi_deadman_s) {
++			printf("FUXI DEADMAN: %llu s without a host command, resetting\n",
++			    idle_s);
++			ud_sleep_ms(200);       /* let the line leave first */
++			fuxi_soc_reset();
++		}
++	}
++}
++
++void
++fuxi_deadman_start(void)
++{
++	thread_t thread;
++	uint32_t arg = FUXI_DEADMAN_DEFAULT_S;
++
++	if (!PE_parse_boot_argn("sweetdeadman", &arg, sizeof(arg))) {
++		arg = FUXI_DEADMAN_DEFAULT_S;
++	}
++	fuxi_deadman_s = arg;
++	if (fuxi_deadman_s == 0) {
++		printf("FUXI DEADMAN: disabled\n");
++		return;
++	}
++	if (kernel_thread_start(fuxi_deadman_thread, NULL, &thread) == KERN_SUCCESS) {
++		thread_deallocate(thread);
++		printf("FUXI DEADMAN: %u s without a host command resets the SoC\n",
++		    fuxi_deadman_s);
++	}
++}
++
++/* Called from panic() after the ring flush: a crashed phone reboots itself. */
++void
++fuxi_panic_reset(void)
++{
++	int enabled = 1;
++
++	if (!PE_parse_boot_argn("sweetpanicreset", &enabled, sizeof(enabled))) {
++		enabled = 1;
++	}
++	if (!enabled) {
++		return;
++	}
++	printf("FUXI PANIC: resetting the SoC\\n");
++	fuxi_soc_reset();               /* SMC; does not return */
++}
++
+ /* framebuffer grab: a request flag for the capture thread */
+ static int fuxi_fb_kick(uint32_t scale);
+ static void fuxi_fb_start_thread(void);
+@@ -454,6 +560,7 @@
+ static void
+ ud_cmd(const char *line)
+ {
++	fuxi_cmd_touch();
+ 	char reply[192];
+ 	size_t len = strlen(line);
+ 	int n;
+@@ -1176,6 +1283,7 @@
+ static void
+ ud_cmd_dispatch(socket_t so, char *line)
+ {
++	fuxi_cmd_touch();
+ 	char reply[160];
+ 	size_t len = strlen(line);
+ 	int n;
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1461,7 +1461,9 @@
+ 	 */
+ 	{
+ 		extern void fuxi_log_flush_panic(void);
+-		fuxi_log_flush_panic();
++		extern void fuxi_panic_reset(void);
++		fuxi_log_flush_panic();          /* ring first: it is the only record */
++		fuxi_panic_reset();              /* then come back up by ourselves */
+ 	}
+ 
+ 	if (!panicDebugging) {

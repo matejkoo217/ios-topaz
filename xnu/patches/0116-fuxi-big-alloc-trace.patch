@@ -1,0 +1,40 @@
+fuxi: 0116 -- name a huge kmem_alloc before it kills the phone
+
+The last boot died with:
+
+  panic(cpu 0 caller ...): kmem_alloc(0xffffffe100161c830, 45000760, 0x100021):
+    failed with 3 @vm_kern.c:178
+
+0x45000760 is 1.08 GiB in one request.  kmem_alloc_guard_internal() refuses an
+extent that big (the wired-extent limit scales with RAM, which is 3 GiB here) and
+__kmem_failed_panic() panics with the size and nothing else -- no caller, no tag --
+so the ring shows a healthy boot followed by a dead phone and no way to tell which
+subsystem asked.
+
+This prints the size, the flags and three return addresses for anything at or above
+32 MiB, before the limit is evaluated, so the next boot's console says who asked.
+Diagnostic only: allocation behaviour is untouched.
+
+Harness: applied=115 skipped=0.
+--- a/osfmk/vm/vm_kern.c
++++ b/osfmk/vm/vm_kern.c
+@@ -789,6 +789,19 @@
+ 	}
+ 
+ 	/*
++	 * A single huge kmem_alloc is how this port dies: the wired-extent limit
++	 * below refuses it and __kmem_failed_panic() panics with the size and nothing
++	 * else, so the ring shows a healthy boot and then a dead phone.  Name the
++	 * request and its callers while a console still exists to print to.
++	 */
++	if (__improbable(size >= (32ULL << 20))) {
++		kprintf("FUXI ALLOC: %llu bytes flags 0x%x caller %p <- %p <- %p\n",
++		    (uint64_t)size, (uint32_t)flags,
++		    __builtin_return_address(0), __builtin_return_address(1),
++		    __builtin_return_address(2));
++	}
++
++	/*
+ 	 * limit the size of a single extent of wired memory
+ 	 * to try and limit the damage to the system if
+ 	 * too many pages get wired down
