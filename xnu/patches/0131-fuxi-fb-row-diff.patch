@@ -1,0 +1,60 @@
+fuxi: 0131 -- copy only the rows that changed
+
+A boot screen is static except for one progress bar, but the compositor reports a
+full-screen rectangle every present, so the copy path wrote 10.4 MB and cleaned 10.4 MB of
+cache each time, ~40 times a second.
+
+Each row is now compared against the destination first: unchanged rows cost a read and
+nothing else, changed rows are copied and flushed on their own.  Worst case (everything
+changes) it is the previous cost plus the compare; the normal case is a few kilobytes.
+
+Flushing per row, not per rectangle, is also what makes this correct -- the panel scans by
+DMA, so every written row has to reach DRAM.
+
+Harness: applied=130 skipped=0.
+--- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
++++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
+@@ -676,20 +676,31 @@
+ 			src = 0;
+ 		}
+ 		if (src != 0 && bpe == 4) {
+-			for (int32_t y = 0; y < h; y++) {
+-				memcpy((void *)(fPixels + (uint64_t)(dy + y) * fRowBytes + (uint64_t)dx * 4),
+-				    (const void *)(src + s->offset + (uint64_t)(sy + y) * s->bytesPerRow + (uint64_t)sx * 4),
+-				    (size_t)w * 4);
+-			}
+ 			/*
+-			 * The panel scans this buffer with DMA, so the copy has to reach DRAM.
+-			 * It used to stay in the CPU cache: every present ran, reported success,
+-			 * and the display never changed (9000 swaps, a frozen screen, and a
+-			 * framebuffer grab that differed by 21 pixels in 20 s).  The direct path
+-			 * flushes for the same reason; this one did not.
++			 * Copy only the rows that actually changed.
++			 *
++			 * A boot screen is almost entirely static: one progress bar animates,
++			 * everything else is identical frame to frame, and the compositor still
++			 * reports a full-screen rectangle every time.  Copying it all costs
++			 * 10.4 MB of writes plus 10.4 MB of cache cleaning per present.  A row
++			 * compare costs reads only, and an unchanged row costs nothing more.
++			 *
++			 * Each changed row is flushed on its own: the panel scans by DMA, so an
++			 * unflushed write stays in the CPU cache and never reaches the screen.
+ 			 */
+-			flush_dcache64((addr64_t)(fPixels + (uint64_t)dy * fRowBytes +
+-			    (uint64_t)dx * 4), (unsigned)((uint64_t)h * fRowBytes), FALSE);
++			for (int32_t y = 0; y < h; y++) {
++				void *dst = (void *)(fPixels + (uint64_t)(dy + y) * fRowBytes +
++				    (uint64_t)dx * 4);
++				const void *row = (const void *)(src + s->offset +
++				    (uint64_t)(sy + y) * s->bytesPerRow + (uint64_t)sx * 4);
++
++				if (memcmp(dst, row, (size_t)w * 4) == 0) {
++					continue;
++				}
++				memcpy(dst, row, (size_t)w * 4);
++				flush_dcache64((addr64_t)dst, (unsigned)((size_t)w * 4), FALSE);
++			}
++		}
+ 		}
+ 		s->release();
+ 	}
