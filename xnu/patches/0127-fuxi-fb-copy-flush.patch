@@ -1,0 +1,30 @@
+fuxi: 0127 -- flush the framebuffer after the copy, or the panel never sees it
+
+The trace says the copy path runs on every present ("copy layer 0 surface 2 1125x2436
+bpr 4608 -> boot fb 0xb8000000") and the screen still never changes.  The copy memcpy's
+into the boot framebuffer and stops there: no cache maintenance.  The panel scans that
+buffer by DMA, so the pixels stay in the CPU cache -- 9000 swaps, a frozen screen, and a
+grab that differed by 21 pixels in 20 s.  The direct path flushes for exactly this reason;
+the copy path did not.
+
+flush_dcache64 over the copied rectangle, to DRAM.
+
+Harness: applied=126 skipped=0.
+--- a/iokit/Kernel/arm/FuxiFramebuffer.cpp
++++ b/iokit/Kernel/arm/FuxiFramebuffer.cpp
+@@ -649,6 +649,15 @@
+ 				    (const void *)(src + s->offset + (uint64_t)(sy + y) * s->bytesPerRow + (uint64_t)sx * 4),
+ 				    (size_t)w * 4);
+ 			}
++			/*
++			 * The panel scans this buffer with DMA, so the copy has to reach DRAM.
++			 * It used to stay in the CPU cache: every present ran, reported success,
++			 * and the display never changed (9000 swaps, a frozen screen, and a
++			 * framebuffer grab that differed by 21 pixels in 20 s).  The direct path
++			 * flushes for the same reason; this one did not.
++			 */
++			flush_dcache64((addr64_t)(fPixels + (uint64_t)dy * fRowBytes +
++			    (uint64_t)dx * 4), (unsigned)((uint64_t)h * fRowBytes), FALSE);
+ 		}
+ 		s->release();
+ 	}
