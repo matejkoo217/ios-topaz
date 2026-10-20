@@ -21,6 +21,10 @@ jobs:
   kernel:
     runs-on: macos-14
     timeout-minutes: 180
+    env:
+      # prepare-xnu-source.py restores DriverKit headers from older Darwin tags
+      # over api.github.com; unauthenticated calls from runner IPs are 403.
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
