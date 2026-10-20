@@ -1,0 +1,67 @@
+fuxi: 0119 -- the panic note actually lands in the ring
+
+0118 was right in principle and wrong in practice: it fed debug_buf_base to the note,
+but on this target that buffer does not hold printable text at hook time, so the ring
+still ended at "exec remotepairingdeviced" while the phone correctly reset itself.
+
+Now the note takes the panic format string, which is always in scope in panic()
+("kmem_%s(%p, %zd, 0x%x): failed with %d" names the failure even unformatted), and
+also the raw buffer, sanitised: bytes outside printable ASCII become '.', so a header
+or a half-written buffer produces readable garbage instead of nothing.
+
+Fixes a real off-by-prefix as well: the sanitiser wrote at line[12 + n] while the
+"*** FUXI PANIC: " prefix is 17 bytes, so the text would have overwritten its own
+label.
+
+Harness: applied=118 skipped=0.
+--- a/bsd/dev/fuxi_ufs.c
++++ b/bsd/dev/fuxi_ufs.c
+@@ -1168,15 +1168,25 @@
+ void
+ fuxi_log_panic_note(const char *text)
+ {
+-	char line[512];
+-	int n;
++	char line[520];
++	size_t i, n = 0;
+ 
+-	if (text == NULL || text[0] < ' ' || text[0] > '~') {
++	if (text == NULL) {
+ 		return;
+ 	}
+-	n = snprintf(line, sizeof(line), "\n*** FUXI PANIC: %.400s\n", text);
+-	if (n > 0) {
+-		fuxi_log_append(line, n < (int)sizeof(line) ? n : (int)sizeof(line) - 1);
++	/* Sanitise: panic buffers can start with a header or hold raw bytes. */
++	for (i = 0; i < 480 && text[i] != '\0'; i++) {
++		char c = text[i];
++		line[17 + n] = (c >= ' ' && c <= '~') || c == '\n' ? c : '.';
++		n++;
++	}
++	if (n == 0) {
++		return;
++	}
++	memcpy(line, "\n*** FUXI PANIC: ", 17);
++	fuxi_log_append(line, (int)(17 + n));
++	if (line[17 + n - 1] != '\n') {
++		fuxi_log_append("\n", 1);
+ 	}
+ }
+ 
+--- a/osfmk/kern/debug.c
++++ b/osfmk/kern/debug.c
+@@ -1466,9 +1466,12 @@
+ 		extern void fuxi_panic_reset(void);
+ 
+ 		/*
+-		 * The formatted message is already in debug_buf_base; console output
+-		 * does not reach the ring during panic, so hand it over explicitly.
++		 * Console output does not reach the ring during panic, so hand the cause
++		 * over explicitly.  The format string is always in scope; debug_buf_base
++		 * holds the formatted version when it is populated, and the note
++		 * sanitiser copes with whatever it actually contains.
+ 		 */
++		fuxi_log_panic_note(str);
+ 		if (debug_buf_base != NULL) {
+ 			fuxi_log_panic_note(debug_buf_base);
+ 		}
