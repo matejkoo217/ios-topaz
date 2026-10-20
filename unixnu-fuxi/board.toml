@@ -43,21 +43,15 @@ windows = [
 
 [kernel]
 defconfig = "fuxi_defconfig"
-# Archive builders of the kernel step, in order. First hardware run: storage and
-# core only. The Adreno, legacy-display and boot-progress builders are held back
-# until the GPU firmware question (SQE revision, ZAP format) is settled.
+# Archive builders of the kernel step, in order, matching fuxi_defconfig:
+# core + storage bring-up only. AES, virtio, ram-block, verified-root, owner-root,
+# Adreno and legacy-display builders are off until their inputs exist here.
 archives = [
   "build-corecrypto-14.py",
   "build-corecrypto-14.py --namespace",
   "build-arm-driver.py ArmDTPlatform",
   "build-arm-driver.py ArmCpu",
-  "build-arm-driver.py NativeAES",
-  "build-native-aes-bindings.py",
   "build-arm-driver.py NativeUfs",
-  "build-arm-driver.py NativeVirtioBlock",
-  "build-arm-driver.py NativeRamBlock",
-  "build-native-virtio-bindings.py --component NativeRamBlock --directory build/native-ram-block",
-  "build-native-virtio-bindings.py --component NativeVirtioBlock",
   "build-mockfs-fixture.py",
   "build-libpthread-kernel.py",
 ]
