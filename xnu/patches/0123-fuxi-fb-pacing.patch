@@ -1,0 +1,49 @@
+fuxi: 0123 -- pace the frame and retry into the transmit queue
+
+The capture works now (the console mapping was the crash), but frames arrive incomplete:
+a scale-6 grab reports "chunks 37/158", stopping exactly where the USB transmit queue
+fills.  The first version treated that as a failure and bailed after five.
+
+Each send now retries for up to 200 ms of one-millisecond attempts, resetting the
+consecutive-failure count on success, the loop yields every 16 chunks instead of 64, and
+the abort threshold applies to a genuine unbroken run of failures.  A full frame should
+now arrive chunk by chunk over about a fifth of a second.
+
+Harness: applied=122 skipped=0.
+--- a/bsd/dev/fuxi_usb.c
++++ b/bsd/dev/fuxi_usb.c
+@@ -1180,8 +1180,19 @@
+ 	msg.msg_namelen = (socklen_t)sizeof(to);
+ 	msg.msg_iov = &iov;
+ 	msg.msg_iovlen = 1;
+-	if (sock_send(so, &msg, 0, &sent) != 0) {
++	/*
++	 * The USB transmit queue is small: a 158-chunk frame overruns it about a quarter
++	 * of the way in, and the first version counted that as a failure and gave up
++	 * (frames arrived with 37 of 158 chunks).  Wait for room and retry; only a run of
++	 * real failures is fatal.
++	 */
++	for (int attempt = 0; attempt < 200; attempt++) {
++		if (sock_send(so, &msg, 0, &sent) == 0) {
++			*errors = 0;
++			return;
++		}
+ 		(*errors)++;
++		ud_sleep_ms(1);
+ 	}
+ }
+ 
+@@ -1232,11 +1243,11 @@
+ 			if (used + 3 > FUXI_FB_CHUNK) {
+ 				fuxi_fb_flush(so, &h, used, chunk++, &errors);
+ 				used = 0;
+-				if (errors > 5) {
++				if (errors > 800) {
+ 					printf("FUXI FB: sends failing, aborting\n");
+ 					goto done;
+ 				}
+-				if ((chunk & 63u) == 0) {
++				if ((chunk & 15u) == 0) {
+ 					ud_sleep_ms(1);   /* let the TX queue drain */
+ 				}
+ 			}
